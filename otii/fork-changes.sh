@@ -4,7 +4,7 @@
 #   otii/fork-changes.sh --diff    the full edits to LearnHouse's own files
 set -euo pipefail
 cd "$(dirname "$0")/.."
-base=$(git merge-base HEAD upstream/main)
+base=$(git merge-base HEAD upstream/HEAD)  # LearnHouse develops on dev
 echo "LearnHouse base: $(git log -1 --format='%h %cd' --date=short "$base")"
 echo "Added by otii:"
 git diff --name-only --diff-filter=A "$base" HEAD | sed 's/^/  /'
