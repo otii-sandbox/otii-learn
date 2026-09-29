@@ -27,8 +27,9 @@ To see it recorded: in the otii repo, `node scripts/otii-learn/record-journey.mj
 
 ## Setup steps (same on laptop, staging, production)
 Run from `apps/api` with the environment's settings:
-- `python -m src.otii.setup all` sets up: the webhook to otii, and otii branding.
-- `python -m src.otii.setup all --remove` undoes both.
+- `python -m src.otii.setup database` creates Otii Learn's database and login (before the API exists).
+- `python -m src.otii.setup all` runs: migrate, webhook to otii, otii branding, features off.
+- Add `--remove` to undo (the database undo also needs `OTII_LEARN_ALLOW_DROP=yes`).
 
 On otii's side (otii repo, run where otii runs):
 - `python -m app.scripts.keycloak_setup` creates the `otii-learn` Keycloak client when `OTII_LEARN_PUBLIC_URL` and `OTII_LEARN_KEYCLOAK_CLIENT_SECRET` are set. `--remove-otii-learn-client` undoes it.
@@ -49,9 +50,8 @@ Everything runs in our own cluster. Nothing here touches otii's services.
    Keycloak client) and `python -m app.scripts.learn_link_org --tier otii --publisher Otii` in a backend job.
 
 Production is the same with `production` and `--confirm-production`, only on an explicit go-ahead.
-Undo on Northflank: delete the `otii-learn-<env>` template's resources (learn-* services, jobs, groups,
-volume), the subdomain (`subdomain.py <env> remove`), and the database (`setup database --remove` with
-`OTII_LEARN_ALLOW_DROP=yes`, run as a job).
+Undo on Northflank: `python3 otii/northflank/remove.py staging --confirm-remove` (add `--drop-data` to also
+delete the database), then `python3 otii/northflank/subdomain.py staging remove`.
 
 ## Settings
 All settings are listed with comments in `otii/env/local.env.example`. Staging and production use the same names, set in Northflank.
