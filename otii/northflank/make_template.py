@@ -206,7 +206,11 @@ spec_steps = [
     {"kind": "JobRun", "ref": "dbProvisionRun", "condition": "success", "spec": {"jobId": "${refs.dbProvisionJob.id}"}},
     service("apiService", "learn-api", "Otii Learn API (LearnHouse). Single copy: uploads live on its volume.",
             "apiPlan", "apiBuild", "apiBuildRun", 9000, "/api/v1/health",
-            command=API_START % "./docker-entrypoint.sh"),
+            # Not ./docker-entrypoint.sh: it binds uvicorn to $HOSTNAME, the
+            # pod name, so Northflank's in-pod health check on localhost never
+            # answered and every start was killed after 5 minutes (staging,
+            # 29 Sep 2026). The API retries its own database connection.
+            command=API_START % ".venv/bin/uvicorn app:app --host 0.0.0.0 --port 9000 --timeout-keep-alive 600"),
     {"kind": "Volume", "ref": "contentVolume", "spec": {
         "name": "learn-content",
         "mounts": [{"containerMountPath": CONTENT_DIR, "volumeMountPath": ""}],
@@ -219,7 +223,9 @@ spec_steps = [
         "sh -c '" + API_START.split("'")[1].replace("exec %s", "exec .venv/bin/python -m src.otii.setup all") + "'"),
     {"kind": "JobRun", "ref": "setupRun", "condition": "success", "spec": {"jobId": "${refs.setupJob.id}"}},
     service("webService", "learn-web", "Otii Learn web app (LearnHouse). The public address routes /api/v1 and /content to learn-api.",
-            "webPlan", "webBuild", "webBuildRun", 3000, "/api/health"),
+            "webPlan", "webBuild", "webBuildRun", 3000, "/api/health",
+            # Same $HOSTNAME trap in the web image's entrypoint (Next.js binds to it).
+            command="sh -c 'export HOSTNAME=0.0.0.0; exec ./docker-entrypoint.sh'"),
 ]
 
 template = {

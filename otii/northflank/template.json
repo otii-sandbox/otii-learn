@@ -555,7 +555,7 @@
                     "docker": {
                       "configType": "customEntrypointCustomCommand",
                       "customEntrypoint": "/bin/sh",
-                      "customCommand": "-c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec ./docker-entrypoint.sh'"
+                      "customCommand": "-c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec .venv/bin/uvicorn app:app --host 0.0.0.0 --port 9000 --timeout-keep-alive 600'"
                     },
                     "internal": {
                       "id": "${refs.apiBuild.id}",
@@ -719,7 +719,9 @@
                   "deployment": {
                     "instances": 1,
                     "docker": {
-                      "configType": "default"
+                      "configType": "customEntrypointCustomCommand",
+                      "customEntrypoint": "/bin/sh",
+                      "customCommand": "-c 'export HOSTNAME=0.0.0.0; exec ./docker-entrypoint.sh'"
                     },
                     "internal": {
                       "id": "${refs.webBuild.id}",
