@@ -10,7 +10,8 @@ Never touches any other database or role on the server.
 Undo drops the database and the role, which deletes every course and all
 progress. It refuses unless OTII_LEARN_ALLOW_DROP=yes is also set.
 
-Settings: OTII_LEARN_DB_ADMIN_URL (server admin login, postgresql://...),
+Settings: OTII_LEARN_DB_ADMIN_URL (server admin login, postgresql://...) or the
+linked PGUSER/PGPASSWORD/PGHOST/PGPORT/PG_ADMIN_URI (see _admin_url),
 OTII_LEARN_DB_NAME, OTII_LEARN_DB_USER, OTII_LEARN_DB_PASSWORD.
 The admin URL's host must be the in-cluster service name, never Northflank's
 addon DNS record (otii outage, 28 Aug 2026).
@@ -33,7 +34,20 @@ NAME = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 
 
 def _admin_url() -> str:
-    url = require("OTII_LEARN_DB_ADMIN_URL")
+    """OTII_LEARN_DB_ADMIN_URL on a laptop. In a Northflank job, the addon's
+    admin login arrives as PGUSER / PGPASSWORD / PGPORT (linked into this job
+    only) and PG_ADMIN_URI, whose database name is used but whose host is not:
+    PGHOST is the plain in-cluster service."""
+    url = os.environ.get("OTII_LEARN_DB_ADMIN_URL", "").strip()
+    if not url:
+        from urllib.parse import quote
+
+        admin_db = urlparse(require("PG_ADMIN_URI")).path.lstrip("/") or "postgres"
+        url = (
+            f"postgresql://{quote(require('PGUSER'), safe='')}:{quote(require('PGPASSWORD'), safe='')}"
+            f"@{require('PGHOST')}:{os.environ.get('PGPORT', '5432')}/{admin_db}"
+            f"?sslmode={os.environ.get('PGSSLMODE', 'require')}"
+        )
     host = urlparse(url).hostname or ""
     if host.endswith((".code.run", ".northflank.com")):
         raise SystemExit("database: admin URL must use the in-cluster service name, not the addon DNS record")
@@ -42,8 +56,7 @@ def _admin_url() -> str:
 
 def _connect(url: str, dbname: str | None = None):
     if dbname:
-        parts = urlparse(url)
-        url = urlunparse(parts._replace(path=f"/{dbname}"))
+        url = urlunparse(urlparse(url)._replace(path=f"/{dbname}"))
     for attempt in range(30):
         try:
             conn = psycopg2.connect(url)

@@ -1,0 +1,792 @@
+{
+  "apiVersion": "v1.2",
+  "name": "otii-learn",
+  "description": "Otii Learn inside an existing otii project. Creates only learn resources, never the project, Postgres or Redis. One file for every environment.",
+  "options": {
+    "autorun": false,
+    "concurrencyPolicy": "queue"
+  },
+  "arguments": {
+    "projectName": "otii-staging",
+    "otiiEnvTag": "staging",
+    "repoUrl": "https://github.com/otii-sandbox/otii-learn",
+    "gitBranch": "otii",
+    "releaseSha": "set-per-run",
+    "domain": "learn-staging.get-otii.com",
+    "topDomain": "get-otii.com",
+    "publicUrl": "https://learn-staging.get-otii.com",
+    "frameAncestors": "https://staging.get-otii.com",
+    "orgSlug": "otii",
+    "adminEmail": "learn-admin@otii.com",
+    "systemEmail": "learn@get-otii.com",
+    "smtpHost": "mailpit",
+    "smtpPort": "1025",
+    "dbAddonId": "postgres",
+    "dbHost": "postgres-postgresql",
+    "dbName": "otii_learn",
+    "dbUser": "otii_learn",
+    "dbPassword": "${fn.randomSecret(32)}",
+    "redisAddonId": "redis",
+    "redisHost": "redis-master",
+    "redisDb": "0",
+    "keycloakUrl": "https://auth-staging.get-otii.com",
+    "keycloakInternalUrl": "http://keycloak:8080",
+    "keycloakRealm": "otii-staging",
+    "otiiWebhookUrl": "http://backend:8000/v2/api/learn/webhooks/learnhouse",
+    "trustedWebhookHosts": "backend",
+    "disabledFeatures": "boards",
+    "contentStorage": "4096",
+    "jwtSecret": "${fn.randomSecret(48)}",
+    "collabKey": "${fn.randomSecret(32)}",
+    "adminPassword": "${fn.randomSecret(24)}",
+    "kcClientSecret": "${fn.randomSecret(40)}",
+    "webhookSecret": "${fn.randomSecret(40)}"
+  },
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "ResourceTag",
+          "ref": "learnTag",
+          "spec": {
+            "name": "otii-learn",
+            "description": "Otii Learn workloads. Otii Learn settings attach to this tag only.",
+            "useAsInfrastructureLabel": false
+          },
+          "updateMode": "put"
+        },
+        {
+          "kind": "CustomPlan",
+          "ref": "apiPlan",
+          "spec": {
+            "name": "learn-api",
+            "type": [
+              "deployment"
+            ],
+            "configuration": {
+              "type": "kubernetes",
+              "resources": {
+                "cpu": {
+                  "resources": {
+                    "limit": 0.5,
+                    "request": 0.1
+                  }
+                },
+                "memory": {
+                  "resources": {
+                    "limit": 768,
+                    "request": 384
+                  }
+                }
+              }
+            }
+          },
+          "updateMode": "put"
+        },
+        {
+          "kind": "CustomPlan",
+          "ref": "webPlan",
+          "spec": {
+            "name": "learn-web",
+            "type": [
+              "deployment"
+            ],
+            "configuration": {
+              "type": "kubernetes",
+              "resources": {
+                "cpu": {
+                  "resources": {
+                    "limit": 0.5,
+                    "request": 0.1
+                  }
+                },
+                "memory": {
+                  "resources": {
+                    "limit": 512,
+                    "request": 256
+                  }
+                }
+              }
+            }
+          },
+          "updateMode": "put"
+        },
+        {
+          "kind": "CustomPlan",
+          "ref": "jobPlan",
+          "spec": {
+            "name": "learn-job",
+            "type": [
+              "deployment"
+            ],
+            "configuration": {
+              "type": "kubernetes",
+              "resources": {
+                "cpu": {
+                  "resources": {
+                    "limit": 0.2,
+                    "request": 0.05
+                  }
+                },
+                "memory": {
+                  "resources": {
+                    "limit": 384,
+                    "request": 192
+                  }
+                }
+              }
+            }
+          },
+          "updateMode": "put"
+        },
+        {
+          "kind": "CustomPlan",
+          "ref": "buildPlan",
+          "spec": {
+            "name": "learn-build",
+            "type": [
+              "build"
+            ],
+            "configuration": {
+              "type": "northflank",
+              "resources": {
+                "cpu": {
+                  "resources": {
+                    "limit": 2
+                  }
+                },
+                "memory": {
+                  "resources": {
+                    "limit": 4096
+                  }
+                }
+              }
+            }
+          },
+          "updateMode": "put"
+        },
+        {
+          "kind": "Workflow",
+          "spec": {
+            "type": "sequential",
+            "context": {
+              "projectId": "${args.projectName}"
+            },
+            "steps": [
+              {
+                "kind": "Condition",
+                "spec": {
+                  "kind": "Addon",
+                  "spec": {
+                    "data": {
+                      "addonId": "${args.dbAddonId}"
+                    },
+                    "type": "running"
+                  }
+                }
+              },
+              {
+                "kind": "Condition",
+                "spec": {
+                  "kind": "Addon",
+                  "spec": {
+                    "data": {
+                      "addonId": "${args.redisAddonId}"
+                    },
+                    "type": "running"
+                  }
+                }
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "learnConfig",
+                "spec": {
+                  "name": "learn-config",
+                  "description": "Otii Learn settings. Tagged otii-learn only.",
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [],
+                    "tags": [
+                      "otii-learn"
+                    ],
+                    "stageIds": []
+                  },
+                  "secrets": {
+                    "variables": {
+                      "LEARNHOUSE_DEVELOPMENT_MODE": "false",
+                      "LEARNHOUSE_TENANCY": "single",
+                      "LEARNHOUSE_DOMAIN": "${args.domain}",
+                      "LEARNHOUSE_FRONTEND_DOMAIN": "${args.domain}",
+                      "LEARNHOUSE_SSL": "true",
+                      "LEARNHOUSE_ALLOWED_ORIGINS": "${args.publicUrl}",
+                      "LEARNHOUSE_PGBOUNCER": "true",
+                      "PGSSLMODE": "require",
+                      "LEARNHOUSE_EMAIL_PROVIDER": "smtp",
+                      "LEARNHOUSE_SMTP_HOST": "${args.smtpHost}",
+                      "LEARNHOUSE_SMTP_PORT": "${args.smtpPort}",
+                      "LEARNHOUSE_SYSTEM_EMAIL_ADDRESS": "${args.systemEmail}",
+                      "LEARNHOUSE_INITIAL_ORG_NAME": "Otii",
+                      "LEARNHOUSE_INITIAL_ORG_SLUG": "${args.orgSlug}",
+                      "LEARNHOUSE_INITIAL_ADMIN_EMAIL": "${args.adminEmail}",
+                      "OTII_LEARN_DB_HOST": "${args.dbHost}",
+                      "OTII_LEARN_DB_NAME": "${args.dbName}",
+                      "OTII_LEARN_DB_USER": "${args.dbUser}",
+                      "OTII_LEARN_REDIS_HOST": "${args.redisHost}",
+                      "OTII_LEARN_REDIS_DB": "${args.redisDb}",
+                      "OTII_KEYCLOAK_URL": "${args.keycloakUrl}",
+                      "OTII_KEYCLOAK_INTERNAL_URL": "${args.keycloakInternalUrl}",
+                      "OTII_KEYCLOAK_REALM": "${args.keycloakRealm}",
+                      "OTII_LEARN_WEBHOOK_URL": "${args.otiiWebhookUrl}",
+                      "OTII_TRUSTED_WEBHOOK_HOSTS": "${args.trustedWebhookHosts}",
+                      "OTII_LEARN_FRAME_ANCESTORS": "${args.frameAncestors}",
+                      "OTII_LEARN_THEME": "otii",
+                      "OTII_LEARN_BRAND_COLOR": "#1C300A",
+                      "OTII_LEARN_BRAND_FONT": "Baloo 2",
+                      "OTII_LEARN_BRAND_LOGO": "src/otii/brand/otii-logo-orange.png",
+                      "OTII_LEARN_DISABLED_FEATURES": "${args.disabledFeatures}",
+                      "NEXT_PUBLIC_LEARNHOUSE_BACKEND_URL": "${args.publicUrl}/",
+                      "NEXT_PUBLIC_LEARNHOUSE_MEDIA_URL": "${args.publicUrl}/",
+                      "NEXT_PUBLIC_LEARNHOUSE_DOMAIN": "${args.domain}",
+                      "NEXT_PUBLIC_LEARNHOUSE_TOP_DOMAIN": "${args.topDomain}",
+                      "NEXT_PUBLIC_LEARNHOUSE_HTTPS": "true",
+                      "NEXT_PUBLIC_LEARNHOUSE_DEFAULT_ORG": "${args.orgSlug}",
+                      "NEXT_TELEMETRY_DISABLED": "1"
+                    },
+                    "files": {}
+                  }
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "learnSecrets",
+                "spec": {
+                  "name": "learn-secrets",
+                  "description": "Otii Learn secrets, generated and stored by Northflank. Tagged otii-learn only.",
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [],
+                    "tags": [
+                      "otii-learn"
+                    ],
+                    "stageIds": []
+                  },
+                  "secrets": {
+                    "variables": {
+                      "LEARNHOUSE_AUTH_JWT_SECRET_KEY": "${args.jwtSecret}",
+                      "COLLAB_INTERNAL_KEY": "${args.collabKey}",
+                      "LEARNHOUSE_INITIAL_ADMIN_PASSWORD": "${args.adminPassword}",
+                      "OTII_LEARN_DB_PASSWORD": "${args.dbPassword}"
+                    },
+                    "files": {}
+                  },
+                  "addonDependencies": [
+                    {
+                      "addonId": "${args.redisAddonId}",
+                      "keys": [
+                        {
+                          "keyName": "PASSWORD",
+                          "aliases": [
+                            "REDIS_PASSWORD"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "learnShared",
+                "spec": {
+                  "name": "otii-learn-shared",
+                  "description": "Values both Otii Learn and otii read: its address, organisation and the two shared secrets.",
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [],
+                    "tags": [
+                      "otii-learn",
+                      "${args.otiiEnvTag}"
+                    ],
+                    "stageIds": []
+                  },
+                  "secrets": {
+                    "variables": {
+                      "OTII_LEARN_PUBLIC_URL": "${args.publicUrl}",
+                      "OTII_LEARN_ORG_SLUG": "${args.orgSlug}",
+                      "OTII_LEARN_API_URL": "http://learn-api:9000",
+                      "OTII_LEARN_KEYCLOAK_CLIENT_SECRET": "${args.kcClientSecret}",
+                      "OTII_LEARN_WEBHOOK_SECRET": "${args.webhookSecret}"
+                    },
+                    "files": {}
+                  }
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "BuildService",
+                "ref": "apiBuild",
+                "spec": {
+                  "name": "learn-api-build",
+                  "description": "Builds learn-api from the Otii Learn fork. Only this template starts builds.",
+                  "tags": [
+                    "otii-learn"
+                  ],
+                  "billing": {
+                    "buildPlan": "${refs.buildPlan.id}"
+                  },
+                  "vcsData": {
+                    "projectUrl": "${args.repoUrl}",
+                    "projectType": "github"
+                  },
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "buildkit",
+                      "dockerFilePath": "/apps/api/Dockerfile",
+                      "dockerWorkDir": "/apps/api"
+                    }
+                  },
+                  "buildConfiguration": {
+                    "branchRestrictions": [
+                      "${args.gitBranch}"
+                    ],
+                    "pathIgnoreRules": [],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": false,
+                    "prRestrictions": []
+                  },
+                  "disabledCI": true,
+                  "buildArguments": {}
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "Build",
+                "ref": "apiBuildRun",
+                "condition": "success",
+                "spec": {
+                  "id": "${refs.apiBuild.id}",
+                  "type": "service",
+                  "branch": "${args.gitBranch}",
+                  "reuseExistingBuilds": true,
+                  "sha": "${args.releaseSha}"
+                }
+              },
+              {
+                "kind": "BuildService",
+                "ref": "webBuild",
+                "spec": {
+                  "name": "learn-web-build",
+                  "description": "Builds learn-web from the Otii Learn fork. Only this template starts builds.",
+                  "tags": [
+                    "otii-learn"
+                  ],
+                  "billing": {
+                    "buildPlan": "${refs.buildPlan.id}"
+                  },
+                  "vcsData": {
+                    "projectUrl": "${args.repoUrl}",
+                    "projectType": "github"
+                  },
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "buildkit",
+                      "dockerFilePath": "/apps/web/Dockerfile",
+                      "dockerWorkDir": "/apps/web"
+                    }
+                  },
+                  "buildConfiguration": {
+                    "branchRestrictions": [
+                      "${args.gitBranch}"
+                    ],
+                    "pathIgnoreRules": [],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": false,
+                    "prRestrictions": []
+                  },
+                  "disabledCI": true,
+                  "buildArguments": {}
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "Build",
+                "ref": "webBuildRun",
+                "condition": "success",
+                "spec": {
+                  "id": "${refs.webBuild.id}",
+                  "type": "service",
+                  "branch": "${args.gitBranch}",
+                  "reuseExistingBuilds": true,
+                  "sha": "${args.releaseSha}"
+                }
+              },
+              {
+                "kind": "ManualJob",
+                "ref": "dbProvisionJob",
+                "spec": {
+                  "name": "learn-db-provision",
+                  "description": "Creates Otii Learn's own database, login and pgvector on the existing Postgres. Idempotent.",
+                  "tags": [
+                    "otii-learn"
+                  ],
+                  "billing": {
+                    "deploymentPlan": "${refs.jobPlan.id}"
+                  },
+                  "deployment": {
+                    "internal": {
+                      "id": "${refs.apiBuild.id}",
+                      "branch": "${args.gitBranch}",
+                      "buildId": "${refs.apiBuildRun.id}"
+                    },
+                    "docker": {
+                      "configType": "customCommand",
+                      "customCommand": "sh -c 'exec .venv/bin/python -m src.otii.setup database'"
+                    }
+                  },
+                  "runtimeEnvironment": {},
+                  "backoffLimit": 0,
+                  "runOnSourceChange": "never",
+                  "activeDeadlineSeconds": 300,
+                  "buildConfiguration": {
+                    "pathIgnoreRules": [],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": false
+                  },
+                  "buildArguments": {}
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "learnDbops",
+                "spec": {
+                  "name": "learn-dbops",
+                  "description": "Postgres admin login for learn-db-provision only. Its host is never used.",
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 20,
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [
+                      {
+                        "id": "learn-db-provision",
+                        "type": "job"
+                      }
+                    ],
+                    "tags": [],
+                    "stageIds": []
+                  },
+                  "secrets": {
+                    "variables": {
+                      "PGHOST": "${args.dbHost}"
+                    },
+                    "files": {}
+                  },
+                  "addonDependencies": [
+                    {
+                      "addonId": "${args.dbAddonId}",
+                      "keys": [
+                        {
+                          "keyName": "POSTGRES_URI",
+                          "aliases": [
+                            "PG_ADMIN_URI"
+                          ]
+                        },
+                        {
+                          "keyName": "PORT",
+                          "aliases": [
+                            "PGPORT"
+                          ]
+                        },
+                        {
+                          "keyName": "ADMIN_USERNAME",
+                          "aliases": [
+                            "PGUSER"
+                          ]
+                        },
+                        {
+                          "keyName": "ADMIN_PASSWORD",
+                          "aliases": [
+                            "PGPASSWORD"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "JobRun",
+                "ref": "dbProvisionRun",
+                "condition": "success",
+                "spec": {
+                  "jobId": "${refs.dbProvisionJob.id}"
+                }
+              },
+              {
+                "kind": "DeploymentService",
+                "ref": "apiService",
+                "spec": {
+                  "name": "learn-api",
+                  "description": "Otii Learn API (LearnHouse). Single copy: uploads live on its volume.",
+                  "tags": [
+                    "otii-learn"
+                  ],
+                  "billing": {
+                    "deploymentPlan": "${refs.apiPlan.id}"
+                  },
+                  "deployment": {
+                    "instances": 1,
+                    "docker": {
+                      "configType": "customCommand",
+                      "customCommand": "sh -c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec ./docker-entrypoint.sh'"
+                    },
+                    "internal": {
+                      "id": "${refs.apiBuild.id}",
+                      "branch": "${args.gitBranch}",
+                      "buildId": "${refs.apiBuildRun.id}"
+                    },
+                    "containerSnapshot": {
+                      "capture": {
+                        "onTermination": false,
+                        "retention": {
+                          "maxSnapshots": 10
+                        }
+                      }
+                    }
+                  },
+                  "runtimeEnvironment": {},
+                  "ports": [
+                    {
+                      "name": "p01",
+                      "internalPort": 9000,
+                      "public": true,
+                      "protocol": "HTTP",
+                      "security": {
+                        "credentials": [],
+                        "policies": [],
+                        "sso": {}
+                      },
+                      "domains": []
+                    }
+                  ],
+                  "healthChecks": [
+                    {
+                      "protocol": "HTTP",
+                      "type": "startupProbe",
+                      "path": "/api/v1/health",
+                      "port": 9000,
+                      "initialDelaySeconds": 5,
+                      "periodSeconds": 10,
+                      "timeoutSeconds": 3,
+                      "failureThreshold": 30
+                    },
+                    {
+                      "protocol": "HTTP",
+                      "type": "readinessProbe",
+                      "path": "/api/v1/health",
+                      "port": 9000,
+                      "initialDelaySeconds": 1,
+                      "periodSeconds": 10,
+                      "timeoutSeconds": 3,
+                      "failureThreshold": 3,
+                      "successThreshold": 1
+                    },
+                    {
+                      "protocol": "HTTP",
+                      "type": "livenessProbe",
+                      "path": "/api/v1/health",
+                      "port": 9000,
+                      "initialDelaySeconds": 1,
+                      "periodSeconds": 15,
+                      "timeoutSeconds": 5,
+                      "failureThreshold": 8
+                    }
+                  ]
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "Volume",
+                "ref": "contentVolume",
+                "spec": {
+                  "name": "learn-content",
+                  "mounts": [
+                    {
+                      "containerMountPath": "/app/content",
+                      "volumeMountPath": ""
+                    }
+                  ],
+                  "spec": {
+                    "storageClassName": "ssd",
+                    "storageSize": "${args.contentStorage}",
+                    "accessMode": "ReadWriteOnce"
+                  },
+                  "attachedObjects": [
+                    {
+                      "id": "${refs.apiService.id}",
+                      "type": "service"
+                    }
+                  ]
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "Condition",
+                "spec": {
+                  "kind": "Service",
+                  "spec": {
+                    "data": {
+                      "serviceId": "${refs.apiService.id}"
+                    },
+                    "type": "running"
+                  }
+                }
+              },
+              {
+                "kind": "ManualJob",
+                "ref": "setupJob",
+                "spec": {
+                  "name": "learn-setup",
+                  "description": "Runs after the API is up: migrations, the webhook to otii, otii branding, features off. Idempotent.",
+                  "tags": [
+                    "otii-learn"
+                  ],
+                  "billing": {
+                    "deploymentPlan": "${refs.jobPlan.id}"
+                  },
+                  "deployment": {
+                    "internal": {
+                      "id": "${refs.apiBuild.id}",
+                      "branch": "${args.gitBranch}",
+                      "buildId": "${refs.apiBuildRun.id}"
+                    },
+                    "docker": {
+                      "configType": "customCommand",
+                      "customCommand": "sh -c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec .venv/bin/python -m src.otii.setup all'"
+                    }
+                  },
+                  "runtimeEnvironment": {},
+                  "backoffLimit": 0,
+                  "runOnSourceChange": "never",
+                  "activeDeadlineSeconds": 600,
+                  "buildConfiguration": {
+                    "pathIgnoreRules": [],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": false
+                  },
+                  "buildArguments": {}
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "JobRun",
+                "ref": "setupRun",
+                "condition": "success",
+                "spec": {
+                  "jobId": "${refs.setupJob.id}"
+                }
+              },
+              {
+                "kind": "DeploymentService",
+                "ref": "webService",
+                "spec": {
+                  "name": "learn-web",
+                  "description": "Otii Learn web app (LearnHouse). The public address routes /api/v1 and /content to learn-api.",
+                  "tags": [
+                    "otii-learn"
+                  ],
+                  "billing": {
+                    "deploymentPlan": "${refs.webPlan.id}"
+                  },
+                  "deployment": {
+                    "instances": 1,
+                    "docker": {
+                      "configType": "default"
+                    },
+                    "internal": {
+                      "id": "${refs.webBuild.id}",
+                      "branch": "${args.gitBranch}",
+                      "buildId": "${refs.webBuildRun.id}"
+                    },
+                    "containerSnapshot": {
+                      "capture": {
+                        "onTermination": false,
+                        "retention": {
+                          "maxSnapshots": 10
+                        }
+                      }
+                    }
+                  },
+                  "runtimeEnvironment": {},
+                  "ports": [
+                    {
+                      "name": "p01",
+                      "internalPort": 3000,
+                      "public": true,
+                      "protocol": "HTTP",
+                      "security": {
+                        "credentials": [],
+                        "policies": [],
+                        "sso": {}
+                      },
+                      "domains": []
+                    }
+                  ],
+                  "healthChecks": [
+                    {
+                      "protocol": "HTTP",
+                      "type": "startupProbe",
+                      "path": "/api/health",
+                      "port": 3000,
+                      "initialDelaySeconds": 5,
+                      "periodSeconds": 10,
+                      "timeoutSeconds": 3,
+                      "failureThreshold": 30
+                    },
+                    {
+                      "protocol": "HTTP",
+                      "type": "readinessProbe",
+                      "path": "/api/health",
+                      "port": 3000,
+                      "initialDelaySeconds": 1,
+                      "periodSeconds": 10,
+                      "timeoutSeconds": 3,
+                      "failureThreshold": 3,
+                      "successThreshold": 1
+                    },
+                    {
+                      "protocol": "HTTP",
+                      "type": "livenessProbe",
+                      "path": "/api/health",
+                      "port": 3000,
+                      "initialDelaySeconds": 1,
+                      "periodSeconds": 15,
+                      "timeoutSeconds": 5,
+                      "failureThreshold": 8
+                    }
+                  ]
+                },
+                "updateMode": "put"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
