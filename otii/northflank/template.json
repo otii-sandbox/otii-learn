@@ -452,8 +452,9 @@
                       "buildId": "${refs.apiBuildRun.id}"
                     },
                     "docker": {
-                      "configType": "customCommand",
-                      "customCommand": "sh -c 'exec .venv/bin/python -m src.otii.setup database'"
+                      "configType": "customEntrypointCustomCommand",
+                      "customEntrypoint": "/bin/sh",
+                      "customCommand": "-c 'exec .venv/bin/python -m src.otii.setup database'"
                     }
                   },
                   "runtimeEnvironment": {},
@@ -552,8 +553,9 @@
                   "deployment": {
                     "instances": 1,
                     "docker": {
-                      "configType": "customCommand",
-                      "customCommand": "sh -c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec ./docker-entrypoint.sh'"
+                      "configType": "customEntrypointCustomCommand",
+                      "customEntrypoint": "/bin/sh",
+                      "customCommand": "-c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec ./docker-entrypoint.sh'"
                     },
                     "internal": {
                       "id": "${refs.apiBuild.id}",
@@ -676,8 +678,9 @@
                       "buildId": "${refs.apiBuildRun.id}"
                     },
                     "docker": {
-                      "configType": "customCommand",
-                      "customCommand": "sh -c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec .venv/bin/python -m src.otii.setup all'"
+                      "configType": "customEntrypointCustomCommand",
+                      "customEntrypoint": "/bin/sh",
+                      "customCommand": "-c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; exec .venv/bin/python -m src.otii.setup all'"
                     }
                   },
                   "runtimeEnvironment": {},

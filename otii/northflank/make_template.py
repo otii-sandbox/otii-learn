@@ -68,6 +68,15 @@ def build_run(ref, service_ref):
         "reuseExistingBuilds": True, "sha": "${args.releaseSha}"}}
 
 
+def shell(command: str) -> dict:
+    """LearnHouse's API image has an ENTRYPOINT that always starts the API and
+    ignores any command (found on staging 29 Sep 2026: the db job started the
+    API instead). So the entrypoint itself is replaced with the shell."""
+    assert command.startswith("sh -c '") and command.endswith("'"), command
+    return {"configType": "customEntrypointCustomCommand", "customEntrypoint": "/bin/sh",
+            "customCommand": command[len("sh "):]}
+
+
 def internal(build_ref, run_ref):
     return {"id": f"${{refs.{build_ref}.id}}", "branch": "${args.gitBranch}", "buildId": f"${{refs.{run_ref}.id}}"}
 
@@ -77,7 +86,7 @@ def job(ref, name, description, command, run_ref="apiBuildRun", deadline=600):
         "name": name, "description": description, "tags": [TAG],
         "billing": {"deploymentPlan": "${refs.jobPlan.id}"},
         "deployment": {"internal": internal("apiBuild", run_ref),
-                       "docker": {"configType": "customCommand", "customCommand": command}},
+                       "docker": shell(command)},
         "runtimeEnvironment": {}, "backoffLimit": 0, "runOnSourceChange": "never",
         "activeDeadlineSeconds": deadline,
         "buildConfiguration": {"pathIgnoreRules": [], "isAllowList": False, "ciIgnoreFlagsEnabled": False},
@@ -98,7 +107,7 @@ def health(path, port):
 
 
 def service(ref, name, description, plan_ref, build_ref, run_ref, port, health_path, command=None):
-    docker = {"configType": "customCommand", "customCommand": command} if command else {"configType": "default"}
+    docker = shell(command) if command else {"configType": "default"}
     return {"kind": "DeploymentService", "ref": ref, "spec": {
         "name": name, "description": description, "tags": [TAG],
         "billing": {"deploymentPlan": f"${{refs.{plan_ref}.id}}"},
