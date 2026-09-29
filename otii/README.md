@@ -34,6 +34,25 @@ On otii's side (otii repo, run where otii runs):
 - `python -m app.scripts.keycloak_setup` creates the `otii-learn` Keycloak client when `OTII_LEARN_PUBLIC_URL` and `OTII_LEARN_KEYCLOAK_CLIENT_SECRET` are set. `--remove-otii-learn-client` undoes it.
 - `python -m app.scripts.learn_link_org --tier otii --publisher Otii` tells otii which Otii Learn organisation is Otii. `--remove` undoes it.
 
+## Staging or production from scratch (Northflank, inside an otii project)
+Everything runs in our own cluster. Nothing here touches otii's services.
+
+1. Shared Redis, once per project (otii repo): `python3 infra/northflank/shared-redis/deploy.py staging`.
+   Undo: `... --remove --confirm-delete-redis` (deletes every app's Redis data).
+2. Web address (this repo): `python3 otii/northflank/subdomain.py staging create`, then add the CNAME it prints
+   at the DNS provider, then `... staging verify`.
+3. Release: `python3 otii/northflank/deploy.py staging`. It checks the guards, the cluster room and that
+   the commit is pushed, then builds both images from that commit, creates the database, starts the API,
+   runs the setup steps and starts the web app. Rerun it for every release.
+4. Routes, once the services exist: `python3 otii/northflank/subdomain.py staging routes`.
+5. otii's side (otii repo, after its PR is on staging): run the `kc-bootstrap` job (creates the `otii-learn`
+   Keycloak client) and `python -m app.scripts.learn_link_org --tier otii --publisher Otii` in a backend job.
+
+Production is the same with `production` and `--confirm-production`, only on an explicit go-ahead.
+Undo on Northflank: delete the `otii-learn-<env>` template's resources (learn-* services, jobs, groups,
+volume), the subdomain (`subdomain.py <env> remove`), and the database (`setup database --remove` with
+`OTII_LEARN_ALLOW_DROP=yes`, run as a job).
+
 ## Settings
 All settings are listed with comments in `otii/env/local.env.example`. Staging and production use the same names, set in Northflank.
 Shared with otii (same value both sides): `OTII_LEARN_PUBLIC_URL`, `OTII_LEARN_ORG_SLUG`, `OTII_LEARN_KEYCLOAK_CLIENT_SECRET`, `OTII_LEARN_WEBHOOK_SECRET`.
@@ -42,5 +61,5 @@ Shared with otii (same value both sides): `OTII_LEARN_PUBLIC_URL`, `OTII_LEARN_O
 `git fetch upstream && git merge upstream/dev`, then check the files `otii/fork-changes.sh` lists.
 LearnHouse is AGPL-3.0: people using our version must be able to get its source.
 
-## Not done yet (UNVERIFIED on Northflank)
-Staging and production deployment (template, images, Redis, bucket, email), customer and marketplace organisations, assignments, reminders, document upload, catalogue across organisations.
+## Not done yet
+Production deployment, customer and marketplace organisations, assignments, reminders, document upload, catalogue across organisations.
