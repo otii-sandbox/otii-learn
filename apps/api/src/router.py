@@ -89,6 +89,8 @@ v1_router.include_router(
     ],
 )
 v1_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+from src.otii import keycloak_sso as otii_keycloak_sso  # noqa: E402
+v1_router.include_router(otii_keycloak_sso.router, prefix="/auth/sso", tags=["auth", "otii"])
 # Two-factor: enrollment/management plus the /auth/login/mfa challenge.
 v1_router.include_router(mfa_router_module.router, prefix="/auth", tags=["auth"])
 v1_router.include_router(
