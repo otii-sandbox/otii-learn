@@ -135,7 +135,10 @@ def main() -> int:
     sha = sh("git", "rev-parse", "HEAD")
     if sha != sh("git", "rev-parse", f"origin/{template['arguments']['gitBranch']}"):
         die("HEAD is not what origin has; push first")
-    print(f"ok  releasing commit {sha[:12]}")
+    # Images depend only on apps/api and apps/web: build the last commit that
+    # changed them, so template or script changes reuse the images already built.
+    image_sha = sh("git", "log", "-1", "--format=%H", "--", "apps/api", "apps/web")
+    print(f"ok  releasing commit {sha[:12]} (images from {image_sha[:12]})")
     if args.check:
         return 0
 
@@ -158,7 +161,7 @@ def main() -> int:
     print(f"ok  template {name} saved and reads back equal, no Git link")
 
     run_args = {k: v for k, v in arguments.items() if k in template["arguments"]}
-    run_args["releaseSha"] = sha
+    run_args["releaseSha"] = image_sha
     code, body = call(tok, "POST", f"/templates/{name}/runs", {"arguments": run_args})
     if code >= 300:
         die(f"starting the run failed with HTTP {code}: {json.dumps(body)[:800]}")

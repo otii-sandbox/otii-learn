@@ -256,7 +256,7 @@ template = {
         "otiiWebhookUrl": "http://backend:8000/v2/api/learn/webhooks/learnhouse",
         "trustedWebhookHosts": "backend",
         "disabledFeatures": "boards",
-        "contentStorage": "4096",
+        "contentStorage": "5120",
         "jwtSecret": "${fn.randomSecret(48)}",
         "collabKey": "${fn.randomSecret(32)}",
         "adminPassword": "${fn.randomSecret(24)}",
