@@ -28,7 +28,7 @@ def main(argv: list[str]) -> int:
         die(__doc__)
     env, action = argv
     args = json.loads((HERE / f"{env}-arguments.json").read_text())
-    domain, sub = args["domain"], args["subdomain"]
+    domain, sub = args["dnsDomain"], args["subdomain"]
     tok = token()
     base = f"/domains/{domain}/subdomains"
 

@@ -38,9 +38,12 @@ def sh(*args: str) -> str:
 
 
 def nodes(tree):
+    """Template nodes, not the resource kinds a Condition waits on."""
     if isinstance(tree, dict):
         if "kind" in tree:
             yield tree
+            if tree["kind"] == "Condition":
+                return
         for value in tree.values():
             yield from nodes(value)
     elif isinstance(tree, list):

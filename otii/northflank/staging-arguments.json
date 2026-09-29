@@ -10,5 +10,6 @@
   "publicUrl": "https://learn-staging.get-otii.com",
   "frameAncestors": "https://staging.get-otii.com",
   "keycloakUrl": "https://auth-staging.get-otii.com",
-  "keycloakRealm": "otii-staging"
+  "keycloakRealm": "otii-staging",
+  "dnsDomain": "get-otii.com"
 }
