@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { isLocalhost as isLocalhostCheck } from './services/utils/ts/hostUtils'
 import { applyFramingPolicy } from './otii/framing'
+import { applyThemeCookie } from './otii/theme'
 
 // =============================================================================
 // Tenancy
@@ -229,7 +230,7 @@ export const config = {
 }
 
 export default async function proxy(req: NextRequest) {
-  return applyFramingPolicy(await learnhouseProxy(req))
+  return applyThemeCookie(applyFramingPolicy(await learnhouseProxy(req)))
 }
 
 async function learnhouseProxy(req: NextRequest) {

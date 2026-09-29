@@ -54,6 +54,11 @@ def _validate_webhook_url(url: str) -> None:
             detail="Webhook URL has no valid hostname.",
         )
 
+    from src.otii.trusted_hosts import is_trusted_webhook_host
+
+    if is_trusted_webhook_host(hostname):
+        return
+
     try:
         resolved = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror:

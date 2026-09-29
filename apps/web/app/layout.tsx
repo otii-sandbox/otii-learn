@@ -1,6 +1,9 @@
 import '../styles/globals.css'
+import '../otii/theme.css'
 import React from 'react'
 import Providers from '@components/Providers'
+import { Suspense } from 'react'
+import FrameBridge from '../otii/FrameBridge'
 import { Wix_Madefor_Text, Tajawal } from 'next/font/google'
 
 const wixMadeforText = Wix_Madefor_Text({
@@ -56,9 +59,14 @@ export default function RootLayout({
             Reads the optional ?bgcolor param (hex-validated) or defaults to dark. */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/embed-bg.js" />
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="/otii-theme.js" />
       </head>
       <body suppressHydrationWarning>
         <Providers>
+          <Suspense fallback={null}>
+            <FrameBridge />
+          </Suspense>
           <main className="animate-fade-in">
             {children}
           </main>

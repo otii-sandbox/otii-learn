@@ -72,6 +72,11 @@ def resolve_and_validate_url(url: str, *, allow_http: bool = True) -> set[str]:
     if not hostname:
         raise SSRFBlockedError("URL has no hostname")
 
+    from src.otii.trusted_hosts import is_trusted_webhook_host
+
+    if is_trusted_webhook_host(hostname):
+        return {str(_normalize(ipaddress.ip_address(info[4][0]))) for info in socket.getaddrinfo(hostname, None)}
+
     if hostname.lower() in _BLOCKED_HOSTNAMES:
         raise SSRFBlockedError(f"Blocked hostname: {hostname}")
 

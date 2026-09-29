@@ -1,0 +1,91 @@
+/*
+ * otii's look for Otii Learn. Values copied from otii's design tokens
+ * (otii frontend/src/design/tokens.ts) and style guide
+ * (backend/markdowns/UI/Get Otii UI_UX Style Guide & System.md).
+ *
+ * Active only when <html data-otii-theme="otii">, which public/otii-theme.js
+ * sets from the otii_learn_theme cookie (from OTII_LEARN_THEME, otii/theme.ts).
+ * The organisation's colour, font and logo come from the branding setup step.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Mulish:wght@400;500;600;700&display=swap');
+
+html[data-otii-theme='otii'] {
+  --otii-forest: #1c300a;
+  --otii-forest-mid: #2f461a;
+  --otii-orange: #e8751a;
+  --otii-orange-hover: #d2670f;
+  --otii-page: #fdfdfd;
+  --otii-cream: #f6f0e7;
+  --otii-text: #0b0b0b;
+  --otii-muted: #5c5c5c;
+  --otii-border: #d5d0c8;
+  --otii-success: #16a34a;
+  --otii-radius-button: 6px;
+  --otii-radius-card: 14px;
+  --otii-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --otii-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+/* Typography: Baloo 2 for headings and UI, Mulish for reading text. */
+html[data-otii-theme='otii'] body,
+html[data-otii-theme='otii'] .lh-org-font-root {
+  font-family: 'Baloo 2', sans-serif !important;
+  color: var(--otii-text);
+}
+html[data-otii-theme='otii'] :is(p, li, td, blockquote, .ProseMirror, .ProseMirror *) {
+  font-family: Mulish, sans-serif;
+}
+html[data-otii-theme='otii'] :is(h1, h2, h3, h4) {
+  font-family: 'Baloo 2', sans-serif;
+  color: var(--otii-text);
+  line-height: 1.2;
+}
+html[data-otii-theme='otii'] .ProseMirror p {
+  color: var(--otii-forest-mid);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Page surface: otii's white, not a tint of the brand colour. */
+html[data-otii-theme='otii'] .lh-org-font-root {
+  background-color: var(--otii-page) !important;
+}
+
+/* Main actions: otii orange, 6px corners, 10% darker on hover. */
+html[data-otii-theme='otii'] :is([class~='bg-black'], [class~='bg-neutral-900'], [class~='bg-gray-900'], [class~='bg-gray-800']):is(button, a, [role='button'], div[class*='cursor-pointer']) {
+  background-color: var(--otii-orange) !important;
+  color: #fff !important;
+  border-radius: var(--otii-radius-button) !important;
+}
+html[data-otii-theme='otii'] :is([class~='bg-black'], [class~='bg-neutral-900'], [class~='bg-gray-900'], [class~='bg-gray-800']):is(button, a, [role='button'], div[class*='cursor-pointer']):hover {
+  background-color: var(--otii-orange-hover) !important;
+}
+
+/* Done state: otii's success green. */
+html[data-otii-theme='otii'] [class~='bg-teal-600'] {
+  background-color: var(--otii-success) !important;
+}
+
+/* Cards and panels: otii radius, border and shadow. */
+html[data-otii-theme='otii'] .nice-shadow {
+  box-shadow: var(--otii-shadow) !important;
+  outline-color: var(--otii-border) !important;
+}
+html[data-otii-theme='otii'] :is([class~='rounded-xl'], [class~='rounded-2xl'], [class~='rounded-lg']):not(button, a, input) {
+  border-radius: var(--otii-radius-card);
+}
+
+/* Inputs: otii border, orange focus ring. */
+html[data-otii-theme='otii'] :is(input, textarea, select):focus {
+  outline: 2px solid var(--otii-orange) !important;
+  outline-offset: 0;
+  box-shadow: 0 0 0 4px rgba(232, 117, 26, 0.15);
+}
+
+/* Links and progress: otii orange. */
+html[data-otii-theme='otii'] :is(.ProseMirror a, [class*='text-blue-6'], [class*='text-blue-5']) {
+  color: var(--otii-orange) !important;
+}
+html[data-otii-theme='otii'] :is([class*='bg-gray-600'][class*='rounded-full'], [role='progressbar'] > div) {
+  background-color: var(--otii-orange) !important;
+}

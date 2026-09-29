@@ -71,3 +71,10 @@ apps/api/ee
 # Playwright MCP session artifacts
 .playwright-mcp/
 .demo-secrets
+# Otii Learn local state and secrets
+otii/env/*.env
+!otii/env/*.env.example
+otii/.state/
+otii/.tools/
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

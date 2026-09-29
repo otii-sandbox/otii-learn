@@ -10,13 +10,15 @@ User.extra_metadata["keycloak_sub"]. An existing LearnHouse account with the
 same email is linked on first Keycloak sign-in; an account already linked to a
 different `sub` is refused. New people are created on first sign-in.
 
+The Keycloak client ("otii-learn") is created by otii's own realm setup
+(backend/app/scripts/keycloak_setup.py), with the same secret.
+
 Settings (all required for the routes to be active):
-  OTII_KEYCLOAK_URL            browser-facing Keycloak base, e.g. https://auth.get-otii.com
-  OTII_KEYCLOAK_INTERNAL_URL   how this API reaches Keycloak (defaults to OTII_KEYCLOAK_URL)
-  OTII_KEYCLOAK_REALM          realm name
-  OTII_KEYCLOAK_CLIENT_ID      confidential client for Otii Learn
-  OTII_KEYCLOAK_CLIENT_SECRET  its secret
-  OTII_LEARN_PUBLIC_URL        Otii Learn web address, e.g. https://learn.get-otii.com
+  OTII_KEYCLOAK_URL                   browser-facing Keycloak base, e.g. https://auth.get-otii.com
+  OTII_KEYCLOAK_INTERNAL_URL          how this API reaches Keycloak (defaults to OTII_KEYCLOAK_URL)
+  OTII_KEYCLOAK_REALM                 realm name
+  OTII_LEARN_KEYCLOAK_CLIENT_SECRET   the otii-learn client's secret (shared with otii)
+  OTII_LEARN_PUBLIC_URL               Otii Learn web address, e.g. https://learn.get-otii.com
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ logger = logging.getLogger(__name__)
 STATE_TTL_SECONDS = 600
 STATE_KEY = "otii:kc_sso_state:{state}"
 LEARNER_ROLE_ID = 4  # LearnHouse's seeded "User" role
+CLIENT_ID = "otii-learn"  # must match OTII_LEARN_CLIENT_ID in otii's keycloak_setup.py
 
 
 @dataclass(frozen=True)
@@ -79,8 +82,8 @@ class KeycloakSettings:
 def load_settings() -> Optional[KeycloakSettings]:
     public = os.environ.get("OTII_KEYCLOAK_URL", "").rstrip("/")
     realm = os.environ.get("OTII_KEYCLOAK_REALM", "")
-    client_id = os.environ.get("OTII_KEYCLOAK_CLIENT_ID", "")
-    secret = os.environ.get("OTII_KEYCLOAK_CLIENT_SECRET", "")
+    client_id = CLIENT_ID
+    secret = os.environ.get("OTII_LEARN_KEYCLOAK_CLIENT_SECRET", "")
     learn = os.environ.get("OTII_LEARN_PUBLIC_URL", "").rstrip("/")
     if not all([public, realm, client_id, secret, learn]):
         return None
