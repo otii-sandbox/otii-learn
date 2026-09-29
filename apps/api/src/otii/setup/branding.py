@@ -9,7 +9,8 @@ is the stylesheet apps/web/otii/theme.css, switched on by OTII_LEARN_THEME=otii.
 
 Settings: LEARNHOUSE_SQL_CONNECTION_STRING, OTII_LEARN_ORG_SLUG,
 OTII_LEARN_BRAND_COLOR (e.g. #1C300A), OTII_LEARN_BRAND_FONT (a Google font,
-e.g. Baloo 2), OTII_LEARN_BRAND_LOGO (path to the logo image).
+e.g. Baloo 2), OTII_LEARN_BRAND_LOGO (logo image; a relative path is read from
+apps/api, so the same value works on a laptop and inside the image).
 """
 
 from __future__ import annotations
@@ -69,6 +70,8 @@ async def _run(remove: bool) -> str:
                 _set_general(config, "font", require("OTII_LEARN_BRAND_FONT"))
                 _set_general(config, "watermark", False)
                 logo = Path(require("OTII_LEARN_BRAND_LOGO"))
+                if not logo.is_absolute():
+                    logo = Path(__file__).resolve().parents[3] / logo
                 content_type = mimetypes.guess_type(logo.name)[0] or "image/png"
                 upload = UploadFile(
                     file=io.BytesIO(logo.read_bytes()),
