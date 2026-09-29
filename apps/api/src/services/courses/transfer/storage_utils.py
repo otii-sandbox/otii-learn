@@ -86,20 +86,20 @@ def get_storage_client():
         # Overridable via LEARNHOUSE_S3_API_REGION for real AWS S3 / MinIO, which
         # validate the region against the endpoint.
         region = os.environ.get("LEARNHOUSE_S3_API_REGION") or "auto"
+        # otii: Civo's addressing style, and Otii Learn's own folder of a shared bucket
+        from src.otii.s3_prefix import otii_s3_config, prefixed
+
         _s3_client = boto3.client(
             "s3",
             endpoint_url=learnhouse_config.hosting_config.content_delivery.s3api.endpoint_url,
             region_name=region,
-            config=botocore.config.Config(
+            config=otii_s3_config(botocore.config.Config(
                 signature_version="s3v4",
                 connect_timeout=10,
                 read_timeout=60,
                 retries={"max_attempts": 2},
-            ),
+            )),
         )
-        # otii: keep Otii Learn inside its own folder of a shared bucket
-        from src.otii.s3_prefix import prefixed
-
         _s3_client = prefixed(_s3_client)
         return _s3_client
 

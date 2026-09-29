@@ -13,6 +13,11 @@ own client is returned untouched.
 
 This decides where LearnHouse writes; it does not limit what the key can
 reach. That needs enforcement outside LearnHouse (to be explored).
+
+OTII_LEARN_S3_ADDRESSING_STYLE ("path" for Civo, as otii's own client uses)
+is the one S3 client option boto3 cannot take from an environment variable.
+The checksum options otii also sets for Civo can: AWS_REQUEST_CHECKSUM_CALCULATION
+and AWS_RESPONSE_CHECKSUM_VALIDATION = when_required.
 """
 
 from __future__ import annotations
@@ -123,3 +128,19 @@ def prefixed(client, prefix: str | None = None):
     """Wrap LearnHouse's S3 client with OTII_LEARN_S3_KEY_PREFIX, if set."""
     value = os.environ.get("OTII_LEARN_S3_KEY_PREFIX", "") if prefix is None else prefix
     return PrefixedS3Client(client, value) if value else client
+
+
+_ADDRESSING_STYLES = ("auto", "path", "virtual")
+
+
+def otii_s3_config(config=None):
+    """LearnHouse's client options plus OTII_LEARN_S3_ADDRESSING_STYLE, if set."""
+    style = os.environ.get("OTII_LEARN_S3_ADDRESSING_STYLE", "").strip()
+    if not style:
+        return config
+    if style not in _ADDRESSING_STYLES:
+        raise ValueError(f"OTII_LEARN_S3_ADDRESSING_STYLE must be one of {_ADDRESSING_STYLES}, not {style!r}")
+    import botocore.config
+
+    extra = botocore.config.Config(s3={"addressing_style": style})
+    return config.merge(extra) if config is not None else extra

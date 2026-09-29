@@ -216,11 +216,12 @@ def _read_storage_file(file_path: str) -> bytes:
         import boto3
         from botocore.exceptions import ClientError
 
-        from src.otii.s3_prefix import prefixed  # otii: own folder of a shared bucket
+        from src.otii.s3_prefix import otii_s3_config, prefixed  # otii: own folder of a shared bucket
 
         s3 = prefixed(boto3.client(
             "s3",
             endpoint_url=config.hosting_config.content_delivery.s3api.endpoint_url,
+            config=otii_s3_config(),
         ))
         bucket = config.hosting_config.content_delivery.s3api.bucket_name or "learnhouse-media"
         try:

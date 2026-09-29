@@ -12,7 +12,11 @@ import json
 from pathlib import Path
 
 TAG = "otii-learn"
-CONTENT_DIR = "/app/content"  # LearnHouse's upload folder inside the API image
+# Otii Learn workloads that store files also carry otii's environment label
+# (staging / production) so they read otii's bucket settings and key from
+# otii's own settings groups: no copy of the key exists. Their files go in
+# the s3KeyPrefix folder. The web app does not store files and is not labelled.
+STORAGE_TAGS = [TAG, "${args.otiiEnvTag}"]
 
 
 def plan(ref, name, kind, cpu_limit, mem_limit, cpu_request=None, mem_request=None):
@@ -81,9 +85,9 @@ def internal(build_ref, run_ref):
     return {"id": f"${{refs.{build_ref}.id}}", "branch": "${args.gitBranch}", "buildId": f"${{refs.{run_ref}.id}}"}
 
 
-def job(ref, name, description, command, run_ref="apiBuildRun", deadline=600):
+def job(ref, name, description, command, run_ref="apiBuildRun", deadline=600, tags=None):
     return {"kind": "ManualJob", "ref": ref, "spec": {
-        "name": name, "description": description, "tags": [TAG],
+        "name": name, "description": description, "tags": tags or [TAG],
         "billing": {"deploymentPlan": "${refs.jobPlan.id}"},
         "deployment": {"internal": internal("apiBuild", run_ref),
                        "docker": shell(command)},
@@ -106,10 +110,10 @@ def health(path, port):
     ]
 
 
-def service(ref, name, description, plan_ref, build_ref, run_ref, port, health_path, command=None):
+def service(ref, name, description, plan_ref, build_ref, run_ref, port, health_path, command=None, tags=None):
     docker = shell(command) if command else {"configType": "default"}
     return {"kind": "DeploymentService", "ref": ref, "spec": {
-        "name": name, "description": description, "tags": [TAG],
+        "name": name, "description": description, "tags": tags or [TAG],
         "billing": {"deploymentPlan": f"${{refs.{plan_ref}.id}}"},
         "deployment": {"instances": 1, "docker": docker, "internal": internal(build_ref, run_ref),
                        "containerSnapshot": {"capture": {"onTermination": False, "retention": {"maxSnapshots": 10}}}},
@@ -123,10 +127,15 @@ def service(ref, name, description, plan_ref, build_ref, run_ref, port, health_p
 # LearnHouse wants whole connection strings; Northflank links only the Redis
 # password. They are put together at start, from the in-cluster service names
 # (never Northflank's addon DNS records: otii outage, 28 Aug 2026).
+# The bucket settings are otii's own (S3_*), renamed to what LearnHouse and
+# boto3 read. Region too: three of LearnHouse's four S3 clients pass none.
 API_START = (
     "sh -c 'export LEARNHOUSE_SQL_CONNECTION_STRING=\"postgresql+asyncpg://$OTII_LEARN_DB_USER:$OTII_LEARN_DB_PASSWORD"
     "@$OTII_LEARN_DB_HOST:5432/$OTII_LEARN_DB_NAME\" "
-    "LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\"; "
+    "LEARNHOUSE_REDIS_CONNECTION_STRING=\"redis://:$REDIS_PASSWORD@$OTII_LEARN_REDIS_HOST:6379/$OTII_LEARN_REDIS_DB\" "
+    "LEARNHOUSE_S3_API_BUCKET_NAME=\"$S3_BUCKET\" LEARNHOUSE_S3_API_ENDPOINT_URL=\"$S3_ENDPOINT\" "
+    "LEARNHOUSE_S3_API_REGION=\"$S3_REGION\" AWS_DEFAULT_REGION=\"$S3_REGION\" "
+    "AWS_ACCESS_KEY_ID=\"$S3_ACCESS_KEY\" AWS_SECRET_ACCESS_KEY=\"$S3_SECRET_KEY\"; "
     "exec %s'"
 )
 
@@ -141,6 +150,13 @@ spec_steps = [
         "LEARNHOUSE_SSL": "true",
         "LEARNHOUSE_ALLOWED_ORIGINS": "${args.publicUrl}",
         "LEARNHOUSE_PGBOUNCER": "true",
+        "LEARNHOUSE_CONTENT_DELIVERY_TYPE": "s3api",
+        "OTII_LEARN_S3_KEY_PREFIX": "${args.s3KeyPrefix}",
+        # What otii's own client sets for Civo (backend/app/adapters/storage/s3.py):
+        # path-style addresses, and no streamed checksum (Civo rejects it).
+        "OTII_LEARN_S3_ADDRESSING_STYLE": "path",
+        "AWS_REQUEST_CHECKSUM_CALCULATION": "when_required",
+        "AWS_RESPONSE_CHECKSUM_VALIDATION": "when_required",
         "PGSSLMODE": "require",
         "LEARNHOUSE_EMAIL_PROVIDER": "smtp",
         "LEARNHOUSE_SMTP_HOST": "${args.smtpHost}",
@@ -204,23 +220,19 @@ spec_steps = [
               {"keyName": "ADMIN_USERNAME", "aliases": ["PGUSER"]},
               {"keyName": "ADMIN_PASSWORD", "aliases": ["PGPASSWORD"]}]}]),
     {"kind": "JobRun", "ref": "dbProvisionRun", "condition": "success", "spec": {"jobId": "${refs.dbProvisionJob.id}"}},
-    service("apiService", "learn-api", "Otii Learn API (LearnHouse). Single copy: uploads live on its volume.",
+    service("apiService", "learn-api", "Otii Learn API (LearnHouse). Files go to otii's bucket, in the Otii Learn folder.",
             "apiPlan", "apiBuild", "apiBuildRun", 9000, "/api/v1/health",
             # Not ./docker-entrypoint.sh: it binds uvicorn to $HOSTNAME, the
             # pod name, so Northflank's in-pod health check on localhost never
             # answered and every start was killed after 5 minutes (staging,
             # 29 Sep 2026). The API retries its own database connection.
-            command=API_START % ".venv/bin/uvicorn app:app --host 0.0.0.0 --port 9000 --timeout-keep-alive 600"),
-    {"kind": "Volume", "ref": "contentVolume", "spec": {
-        "name": "learn-content",
-        "mounts": [{"containerMountPath": CONTENT_DIR, "volumeMountPath": ""}],
-        "spec": {"storageClassName": "ssd", "storageSize": "${args.contentStorage}", "accessMode": "ReadWriteOnce"},
-        "attachedObjects": [{"id": "${refs.apiService.id}", "type": "service"}],
-    }, "updateMode": "put"},
+            command=API_START % ".venv/bin/uvicorn app:app --host 0.0.0.0 --port 9000 --timeout-keep-alive 600",
+            tags=STORAGE_TAGS),
     {"kind": "Condition", "spec": {"kind": "Service", "spec": {"data": {"serviceId": "${refs.apiService.id}"}, "type": "running"}}},
     job("setupJob", "learn-setup",
         "Runs after the API is up: migrations, the webhook to otii, otii branding, features off. Idempotent.",
-        "sh -c '" + API_START.split("'")[1].replace("exec %s", "exec .venv/bin/python -m src.otii.setup all") + "'"),
+        "sh -c '" + API_START.split("'")[1].replace("exec %s", "exec .venv/bin/python -m src.otii.setup all") + "'",
+        tags=STORAGE_TAGS),
     {"kind": "JobRun", "ref": "setupRun", "condition": "success", "spec": {"jobId": "${refs.setupJob.id}"}},
     service("webService", "learn-web", "Otii Learn web app (LearnHouse). The public address routes /api/v1 and /content to learn-api.",
             "webPlan", "webBuild", "webBuildRun", 3000, "/api/health",
@@ -262,7 +274,7 @@ template = {
         "otiiWebhookUrl": "http://backend:8000/v2/api/learn/webhooks/learnhouse",
         "trustedWebhookHosts": "backend",
         "disabledFeatures": "boards",
-        "contentStorage": "5120",
+        "s3KeyPrefix": "staging/otii-learn/",
         "jwtSecret": "${fn.randomSecret(48)}",
         "collabKey": "${fn.randomSecret(32)}",
         "adminPassword": "${fn.randomSecret(24)}",

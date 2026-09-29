@@ -53,6 +53,18 @@ Production is the same with `production` and `--confirm-production`, only on an 
 Undo on Northflank: `python3 otii/northflank/remove.py staging --confirm-remove` (add `--drop-data` to also
 delete the database), then `python3 otii/northflank/subdomain.py staging remove`.
 
+## Where files go
+- Laptop: a folder on disk, as LearnHouse does by default.
+- Staging and production: otii's own private bucket, in the folder `<environment>/otii-learn/`
+  (`OTII_LEARN_S3_KEY_PREFIX`). otii's files sit in `<environment>/<organisation number>/`, so the two never meet.
+- Otii Learn uses otii's bucket key. It gets it because `learn-api` and `learn-setup` carry otii's environment
+  label (`staging` / `production`), which also gives them every other otii setting of that environment.
+  `learn-web` does not carry it. The deploy guards refuse any other workload with that label.
+- The folder decides where Otii Learn writes. It does not stop the key reaching the rest of the bucket.
+- Videos play through a short-lived signed link to the one file; the bucket stays private.
+- The disk Otii Learn used before (`learn-content`) is deleted with
+  `python3 otii/northflank/retire_volume.py staging learn-content --confirm-delete`. It refuses if any file is on it.
+
 ## Settings
 All settings are listed with comments in `otii/env/local.env.example`. Staging and production use the same names, set in Northflank.
 Shared with otii (same value both sides): `OTII_LEARN_PUBLIC_URL`, `OTII_LEARN_ORG_SLUG`, `OTII_LEARN_KEYCLOAK_CLIENT_SECRET`, `OTII_LEARN_WEBHOOK_SECRET`.

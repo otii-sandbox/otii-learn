@@ -30,6 +30,7 @@ POLL_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 60 * 60
 PLAN_CAPS_MI = {"learn-api": 768, "learn-web": 512, "learn-job": 384, "learn-build": 4096}
 NAME_PREFIXES = ("learn-", "otii-learn")
+STORAGE_WORKLOADS = ("learn-api", "learn-setup")
 DESCRIPTION_OK = re.compile(r"^[a-zA-Z0-9.,?\s\\/'\"()\[\];`%^&*\-_:!]+$")
 
 
@@ -51,7 +52,7 @@ def nodes(tree):
             yield from nodes(value)
 
 
-def guard(template: dict) -> None:
+def guard(template: dict, arguments: dict | None = None) -> None:
     """Every rule here is one Otii Learn must never break on a shared otii project."""
     problems = []
     if "gitops" in template:
@@ -77,6 +78,17 @@ def guard(template: dict) -> None:
     for key in ("dbHost", "redisHost"):
         if re.search(r"\.(code\.run|northflank\.com)$", args.get(key, "")):
             problems.append(f"{key} uses Northflank's addon DNS; use the in-cluster service name")
+    # otii's environment label hands a workload every otii setting of that
+    # environment. Only the two that store files need it; learn-web would
+    # also pick up otii's Stripe names, which LearnHouse's web app reads.
+    for node in nodes(template["spec"]):
+        spec = node.get("spec", {})
+        if isinstance(spec, dict) and "${args.otiiEnvTag}" in (spec.get("tags") or []):
+            if node["kind"] != "SecretGroup" and spec.get("name") not in STORAGE_WORKLOADS:
+                problems.append(f"{spec.get('name')} carries otii's environment label; only {STORAGE_WORKLOADS} may")
+    run = {**args, **(arguments or {})}
+    if run.get("s3KeyPrefix") != f"{run.get('otiiEnvTag')}/otii-learn/":
+        problems.append("s3KeyPrefix must be <otii environment>/otii-learn/, e.g. staging/otii-learn/")
     if problems:
         die("guards failed:\n  " + "\n  ".join(problems))
     print("ok  guards pass")
@@ -126,7 +138,7 @@ def main() -> int:
 
     template = json.loads((HERE / "template.json").read_text())
     arguments = json.loads((HERE / f"{args.env}-arguments.json").read_text())
-    guard(template)
+    guard(template, arguments)
     check_room()
 
     if sh("git", "status", "--porcelain"):

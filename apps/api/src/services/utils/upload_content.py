@@ -9,7 +9,7 @@ from fastapi import HTTPException, UploadFile
 from config.config import get_learnhouse_config
 from src.security.file_validation import validate_upload
 from src.services.utils.video_processing import ensure_faststart
-from src.otii.s3_prefix import prefixed  # otii: own folder of a shared bucket
+from src.otii.s3_prefix import otii_s3_config, prefixed  # otii: own folder of a shared bucket
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ async def upload_content(
         s3 = prefixed(boto3.client(  # otii: own folder of a shared bucket
             "s3",
             endpoint_url=learnhouse_config.hosting_config.content_delivery.s3api.endpoint_url,
-            config=botocore.config.Config(connect_timeout=10, read_timeout=60, retries={"max_attempts": 2}),
+            config=otii_s3_config(botocore.config.Config(connect_timeout=10, read_timeout=60, retries={"max_attempts": 2})),
         ))
 
         bucket_name = learnhouse_config.hosting_config.content_delivery.s3api.bucket_name or "learnhouse-media"
@@ -196,7 +196,7 @@ async def read_content(
         s3 = prefixed(boto3.client(  # otii: own folder of a shared bucket
             "s3",
             endpoint_url=learnhouse_config.hosting_config.content_delivery.s3api.endpoint_url,
-            config=botocore.config.Config(connect_timeout=10, read_timeout=60, retries={"max_attempts": 2}),
+            config=otii_s3_config(botocore.config.Config(connect_timeout=10, read_timeout=60, retries={"max_attempts": 2})),
         ))
         bucket_name = learnhouse_config.hosting_config.content_delivery.s3api.bucket_name or "learnhouse-media"
         s3_key = f"content/{type_of_dir}/{uuid}/{directory}/{file_and_format}"

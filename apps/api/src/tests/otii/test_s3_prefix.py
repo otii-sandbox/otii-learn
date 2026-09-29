@@ -129,3 +129,80 @@ def test_other_attributes_pass_through():
     client, raw = wrapped()
     client.some_other_call(Bucket="otii")
     assert raw.calls[-1][0] == "some_other_call"
+
+
+# ---- OTII_LEARN_S3_ADDRESSING_STYLE and the checksum settings, checked on the
+# requests boto3 really builds (nothing is sent: a hook answers first).
+
+import boto3
+import botocore.config
+from botocore.awsrequest import AWSResponse
+
+from src.otii.s3_prefix import otii_s3_config
+
+
+class _EmptyBody:
+    def stream(self, **_):
+        return iter([b""])
+
+
+def _capture(client):
+    sent = []
+
+    def answer(request, **_):
+        sent.append(request)
+        return AWSResponse(request.url, 200, {}, _EmptyBody())
+
+    client.meta.events.register_first("before-send.s3.*", answer)
+    return sent
+
+
+def _client(monkeypatch, config):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+    return boto3.client("s3", endpoint_url="https://objectstore.example.test", region_name="LON1", config=config)
+
+
+def test_no_setting_leaves_learnhouses_config_untouched(monkeypatch):
+    monkeypatch.delenv("OTII_LEARN_S3_ADDRESSING_STYLE", raising=False)
+    base = botocore.config.Config(connect_timeout=10)
+    assert otii_s3_config(base) is base
+    assert otii_s3_config(None) is None
+
+
+def test_path_style_puts_the_bucket_in_the_path(monkeypatch):
+    monkeypatch.setenv("OTII_LEARN_S3_ADDRESSING_STYLE", "path")
+    client = _client(monkeypatch, otii_s3_config(botocore.config.Config(connect_timeout=10)))
+    assert client.meta.config.connect_timeout == 10  # LearnHouse's own options kept
+    sent = _capture(client)
+    client.put_object(Bucket="otii", Key="staging/otii-learn/a.png", Body=b"x")
+    assert sent[-1].url == "https://objectstore.example.test/otii/staging/otii-learn/a.png"
+    url = client.generate_presigned_url("get_object", Params={"Bucket": "otii", "Key": "k"}, ExpiresIn=60)
+    assert url.startswith("https://objectstore.example.test/otii/k?")
+
+
+def test_unknown_addressing_style_is_refused(monkeypatch):
+    monkeypatch.setenv("OTII_LEARN_S3_ADDRESSING_STYLE", "sideways")
+    with pytest.raises(ValueError):
+        otii_s3_config(None)
+
+
+def test_when_required_sends_no_checksum_header(monkeypatch):
+    monkeypatch.setenv("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
+    monkeypatch.setenv("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
+    client = _client(monkeypatch, None)
+    sent = _capture(client)
+    client.put_object(Bucket="otii", Key="k", Body=b"x")
+    headers = {k.lower(): v for k, v in sent[-1].headers.items()}
+    assert "x-amz-trailer" not in headers
+    assert not str(headers["x-amz-content-sha256"]).lstrip("b'").startswith("STREAMING")
+
+
+def test_without_it_boto3_adds_the_checksum_civo_rejects(monkeypatch):
+    # Proves the test above is not passing by accident.
+    monkeypatch.delenv("AWS_REQUEST_CHECKSUM_CALCULATION", raising=False)
+    client = _client(monkeypatch, None)
+    sent = _capture(client)
+    client.put_object(Bucket="otii", Key="k", Body=b"x")
+    headers = {k.lower(): v for k, v in sent[-1].headers.items()}
+    assert headers["x-amz-trailer"] in ("x-amz-checksum-crc32", b"x-amz-checksum-crc32")

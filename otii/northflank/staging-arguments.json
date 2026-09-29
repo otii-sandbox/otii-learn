@@ -11,5 +11,6 @@
   "frameAncestors": "https://staging.get-otii.com",
   "keycloakUrl": "https://auth-staging.get-otii.com",
   "keycloakRealm": "otii-staging",
-  "dnsDomain": "get-otii.com"
+  "dnsDomain": "get-otii.com",
+  "s3KeyPrefix": "staging/otii-learn/"
 }
