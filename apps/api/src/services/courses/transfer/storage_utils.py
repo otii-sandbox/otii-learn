@@ -97,6 +97,10 @@ def get_storage_client():
                 retries={"max_attempts": 2},
             ),
         )
+        # otii: keep Otii Learn inside its own folder of a shared bucket
+        from src.otii.s3_prefix import prefixed
+
+        _s3_client = prefixed(_s3_client)
         return _s3_client
 
 
