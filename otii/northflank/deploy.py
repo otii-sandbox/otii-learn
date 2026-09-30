@@ -127,6 +127,31 @@ def check_room() -> None:
     print("ok  room for Otii Learn and one build")
 
 
+def carry_linked_routes(tok: str, template: dict, project: str, domain: str) -> None:
+    """Routes already linked to the live learn services stay linked.
+
+    The file declares none: from scratch there are none yet (subdomain.py
+    routes runs after the first release). Northflank refuses a run whose
+    port list would unlink a route that exists (staging, 30 Sep 2026), so
+    each run carries over what is linked, and only under this environment's
+    address."""
+    for node in nodes(template["spec"]):
+        if node["kind"] != "DeploymentService":
+            continue
+        name = node["spec"]["name"]
+        code, body = call(tok, "GET", f"/projects/{project}/services/{name}")
+        if code == 404:
+            continue
+        if code >= 300:
+            die(f"reading service {name} failed with HTTP {code}: {json.dumps(body)[:400]}")
+        live = {p.get("name"): p.get("domains") or [] for p in unwrap(body).get("ports", [])}
+        for port in node["spec"].get("ports", []):
+            port["domains"] = [d for d in live.get(port["name"], [])
+                               if d == domain or d.startswith(domain + "/")]
+            for route in port["domains"]:
+                print(f"    keeps route {route} -> {name}:{port['name']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("env", choices=["staging", "production"])
@@ -155,6 +180,7 @@ def main() -> int:
         return 0
 
     tok = token()
+    carry_linked_routes(tok, template, arguments["projectName"], arguments["domain"])
     want = dict(template, name=f"otii-learn-{args.env}")
     name = want["name"]
     code, body = call(tok, "GET", f"/templates/{name}")
