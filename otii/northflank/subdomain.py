@@ -14,6 +14,7 @@ Settings come from otii/northflank/<env>-arguments.json.
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 import sys
 from pathlib import Path
 
@@ -67,9 +68,11 @@ def main(argv: list[str]) -> int:
                 if code >= 300:
                     die(f"adding path {uri} failed with HTTP {code}: {json.dumps(body)[:400]}")
                 path = unwrap(body)
-            path_id = path.get("id") or path.get("name")
+            # A path is addressed by its URI ("/", "/api/v1"), URL-encoded
+            # (Northflank's own example: subdomainPath "/"; checked 30 Sep 2026).
+            path_id = quote(uri, safe="")
             code, body = call(tok, "POST", f"{base}/{sub}/paths/{path_id}/assign",
-                              {"assignment": {"projectId": project, "serviceId": service, "portName": port}})
+                              {"assignment": {"project": project, "service": service, "port": port}})
             if code >= 300:
                 die(f"routing {uri} to {service}:{port} failed with HTTP {code}: {json.dumps(body)[:400]}")
             print(f"ok  {sub}.{domain}{uri} -> {service}:{port}")
