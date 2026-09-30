@@ -54,20 +54,30 @@ def main(argv: list[str]) -> int:
 
     if action == "routes":
         project = args["projectName"]
+        # The API paths carry a higher priority than "/": a prefix "/" also
+        # matches "/api/v1/...", and with equal priority those calls went to
+        # the web app, whose proxy sent them back to this same address until
+        # they timed out (staging, 30 Sep 2026).
         routes = [
-            ("api", "prefix", "/api/v1", args["apiService"], args["apiPort"]),
-            ("content", "prefix", "/content", args["apiService"], args["apiPort"]),
-            ("web", "prefix", "/", args["webService"], args["webPort"]),
+            ("api", "prefix", "/api/v1", args["apiService"], args["apiPort"], 10),
+            ("content", "prefix", "/content", args["apiService"], args["apiPort"], 10),
+            ("web", "prefix", "/", args["webService"], args["webPort"], 0),
         ]
         code, body = call(tok, "GET", f"{base}/{sub}/paths")
         existing = {p.get("uri"): p for p in (unwrap(body).get("paths", []) if code < 300 else [])}
-        for name, mode, uri, service, port in routes:
+        for name, mode, uri, service, port, priority in routes:
             path = existing.get(uri)
             if path is None:
-                code, body = call(tok, "POST", f"{base}/{sub}/paths", {"mode": mode, "uri": uri})
+                code, body = call(tok, "POST", f"{base}/{sub}/paths",
+                                  {"mode": mode, "uri": uri, "options": {"priority": priority}})
                 if code >= 300:
                     die(f"adding path {uri} failed with HTTP {code}: {json.dumps(body)[:400]}")
                 path = unwrap(body)
+            elif (path.get("options") or {}).get("priority") != priority:
+                code, body = call(tok, "POST", f"{base}/{sub}/paths/{quote(uri, safe='')}",
+                                  {"options": {"priority": priority}})
+                if code >= 300:
+                    die(f"setting priority of {uri} failed with HTTP {code}: {json.dumps(body)[:400]}")
             # A path is addressed by its URI ("/", "/api/v1"), URL-encoded
             # (Northflank's own example: subdomainPath "/"; checked 30 Sep 2026).
             path_id = quote(uri, safe="")
