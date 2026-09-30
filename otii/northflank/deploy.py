@@ -31,6 +31,11 @@ RUN_TIMEOUT_SECONDS = 60 * 60
 PLAN_CAPS_MI = {"learn-api": 768, "learn-web": 512, "learn-job": 384, "learn-build": 4096}
 NAME_PREFIXES = ("learn-", "otii-learn")
 STORAGE_WORKLOADS = ("learn-api", "learn-setup")
+# Generated once by Northflank and kept across releases. A randomSecret in a
+# template ARGUMENT is drawn again on every run (it rotated the Keycloak
+# client secret and the webhook secret under otii on staging, 30 Sep 2026);
+# one in the stored template's argument overrides is drawn once and kept.
+SECRET_ARGS = ("dbPassword", "jwtSecret", "collabKey", "adminPassword", "kcClientSecret", "webhookSecret")
 DESCRIPTION_OK = re.compile(r"^[a-zA-Z0-9.,?\s\\/'\"()\[\];`%^&*\-_:!]+$")
 
 
@@ -184,10 +189,16 @@ def main() -> int:
     want = dict(template, name=f"otii-learn-{args.env}")
     name = want["name"]
     code, body = call(tok, "GET", f"/templates/{name}")
+    stored = unwrap(body) if code < 300 else {}
+    overrides = dict(stored.get("argumentOverrides") or {})
+    fresh = [k for k in SECRET_ARGS if k not in overrides]
+    for key in fresh:
+        overrides[key] = template["arguments"][key]  # the ${fn.randomSecret(n)} expression, drawn once
+    want["argumentOverrides"] = overrides
     if code == 404:
         code, body = call(tok, "POST", "/templates", want)
     elif code < 300:
-        if "gitops" in unwrap(body):
+        if "gitops" in stored:
             die(f"stored template {name} has a Git link; refusing")
         code, body = call(tok, "POST", f"/templates/{name}", want)
     if code >= 300:
@@ -196,7 +207,14 @@ def main() -> int:
     live = unwrap(body)
     if code >= 300 or "gitops" in live or live.get("spec") != want["spec"]:
         die(f"template {name} does not read back equal to the file")
+    missing = [k for k in SECRET_ARGS if k not in (live.get("argumentOverrides") or {})]
+    if missing:
+        die(f"template {name} does not keep these secrets across runs: {missing}")
     print(f"ok  template {name} saved and reads back equal, no Git link")
+    if fresh:
+        print(f"    secrets drawn on this run and kept from now on: {', '.join(fresh)}")
+        print("    otii's side reads two of them (Keycloak client secret, webhook secret): run kc-bootstrap"
+              " and release or restart otii's backend after this run")
 
     run_args = {k: v for k, v in arguments.items() if k in template["arguments"]}
     run_args["releaseSha"] = image_sha
