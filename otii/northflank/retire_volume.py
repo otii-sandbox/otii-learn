@@ -37,8 +37,11 @@ def count_files(project: str, service: str, path: str) -> int:
         capture_output=True, text=True, timeout=180,
     )
     for line in out.stdout.splitlines():
-        if marker in line:
-            return int(line.split(marker, 1)[1].strip())
+        # The CLI echoes the command itself first, marker included; only the
+        # count line is the marker followed by digits.
+        rest = line.strip()[len(marker):] if line.strip().startswith(marker) else ""
+        if rest.isdigit():
+            return int(rest)
     die(f"could not count the files on the disk (exit {out.returncode}); nothing was changed")
     return -1
 
