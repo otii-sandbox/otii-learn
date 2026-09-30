@@ -28,7 +28,10 @@ To see it recorded: in the otii repo, `node scripts/otii-learn/record-journey.mj
 ## Setup steps (same on laptop, staging, production)
 Run from `apps/api` with the environment's settings:
 - `python -m src.otii.setup database` creates Otii Learn's database and login (before the API exists).
-- `python -m src.otii.setup all` runs: migrate, webhook to otii, otii branding, features off.
+- `python -m src.otii.setup all` runs: migrate, admin password from the settings, webhook to otii, otii branding, features off.
+- Roles: otii super admins are Learn admins (they make courses and can give others a course-making role in
+  Learn's admin area, Users > Roles). Everyone else is a learner. Set at each sign-in from the `otii_roles`
+  claim otii's Keycloak client adds; a role given by hand in Learn is never lowered by sign-in.
 - Add `--remove` to undo (the database undo also needs `OTII_LEARN_ALLOW_DROP=yes`).
 
 On otii's side (otii repo, run where otii runs):

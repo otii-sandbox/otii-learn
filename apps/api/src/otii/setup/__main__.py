@@ -1,6 +1,6 @@
-"""python -m src.otii.setup {all|database|migrate|webhook|branding|features} [--remove]
+"""python -m src.otii.setup {all|database|migrate|admin|webhook|branding|features} [--remove]
 
-`all` runs the steps that need a running Otii Learn: migrate, webhook,
+`all` runs the steps that need a running Otii Learn: migrate, admin, webhook,
 branding, features. `database` runs before the API exists, on its own.
 """
 
@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import sys
 
-from src.otii.setup import branding, database, features, migrate, webhook
+from src.otii.setup import admin, branding, database, features, migrate, webhook
 
 STEPS = {
     "database": database.run,
     "migrate": migrate.run,
+    "admin": admin.run,
     "webhook": webhook.run,
     "branding": branding.run,
     "features": features.run,
 }
-ORDER = ["migrate", "webhook", "branding", "features"]
+ORDER = ["migrate", "admin", "webhook", "branding", "features"]
 
 
 def main(argv: list[str]) -> None:

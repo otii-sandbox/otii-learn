@@ -55,7 +55,18 @@ logger = logging.getLogger(__name__)
 STATE_TTL_SECONDS = 600
 STATE_KEY = "otii:kc_sso_state:{state}"
 LEARNER_ROLE_ID = 4  # LearnHouse's seeded "User" role
+ADMIN_ROLE_ID = 1  # LearnHouse's seeded "Admin" role: makes courses, gives roles
 CLIENT_ID = "otii-learn"  # must match OTII_LEARN_CLIENT_ID in otii's keycloak_setup.py
+ROLES_CLAIM = "otii_roles"  # the person's otii realm roles, put in the id token by otii's Keycloak client
+OTII_SUPER_ADMIN = "super_admin"
+
+
+def learn_role_for(claims: dict) -> int:
+    """otii super admins are Learn admins (rule of 30 Sep 2026); everyone else a learner."""
+    roles = claims.get(ROLES_CLAIM) or []
+    if isinstance(roles, str):
+        roles = [roles]
+    return ADMIN_ROLE_ID if OTII_SUPER_ADMIN in roles else LEARNER_ROLE_ID
 
 
 @dataclass(frozen=True)
@@ -286,17 +297,25 @@ async def find_or_create_user(
             )
         )
     ).scalars().first()
+    wanted = learn_role_for(claims)
     if membership is None:
         now = str(datetime.now())
         db_session.add(
             UserOrganization(
                 user_id=user.id,
                 org_id=org.id,
-                role_id=LEARNER_ROLE_ID,
+                role_id=wanted,
                 creation_date=now,
                 update_date=now,
             )
         )
+        await db_session.commit()
+    elif wanted == ADMIN_ROLE_ID and membership.role_id != ADMIN_ROLE_ID:
+        # Raised on each sign-in; never lowered here, so a role someone was
+        # given by hand in Learn's admin area is kept.
+        membership.role_id = ADMIN_ROLE_ID
+        membership.update_date = str(datetime.now())
+        db_session.add(membership)
         await db_session.commit()
     return user
 
