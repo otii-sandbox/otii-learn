@@ -31,11 +31,21 @@ RUN_TIMEOUT_SECONDS = 60 * 60
 PLAN_CAPS_MI = {"learn-api": 768, "learn-web": 512, "learn-job": 384, "learn-build": 4096}
 NAME_PREFIXES = ("learn-", "otii-learn")
 STORAGE_WORKLOADS = ("learn-api", "learn-setup")
-# Generated once by Northflank and kept across releases. A randomSecret in a
-# template ARGUMENT is drawn again on every run (it rotated the Keycloak
-# client secret and the webhook secret under otii on staging, 30 Sep 2026);
-# one in the stored template's argument overrides is drawn once and kept.
-SECRET_ARGS = ("dbPassword", "jwtSecret", "collabKey", "adminPassword", "kcClientSecret", "webhookSecret")
+# Northflank draws a ${fn.randomSecret} again on EVERY run, whether it sits in
+# the template arguments or in the stored argument overrides (staging, 30 Sep
+# 2026: four releases, four different Keycloak client secrets, the docs'
+# "kept unless removed" notwithstanding). So each release reads the six
+# secrets back from the live API service and passes them in as plain run
+# arguments; only a secret that does not exist yet (first release) is drawn.
+SECRET_SOURCES = {
+    "dbPassword": "OTII_LEARN_DB_PASSWORD",
+    "jwtSecret": "LEARNHOUSE_AUTH_JWT_SECRET_KEY",
+    "collabKey": "COLLAB_INTERNAL_KEY",
+    "adminPassword": "LEARNHOUSE_INITIAL_ADMIN_PASSWORD",
+    "kcClientSecret": "OTII_LEARN_KEYCLOAK_CLIENT_SECRET",
+    "webhookSecret": "OTII_LEARN_WEBHOOK_SECRET",
+}
+SECRET_ARGS = tuple(SECRET_SOURCES)
 DESCRIPTION_OK = re.compile(r"^[a-zA-Z0-9.,?\s\\/'\"()\[\];`%^&*\-_:!]+$")
 
 
@@ -157,6 +167,18 @@ def carry_linked_routes(tok: str, template: dict, project: str, domain: str) -> 
                 print(f"    keeps route {route} -> {name}:{port['name']}")
 
 
+def live_secrets(tok: str, project: str) -> dict:
+    """The six secrets as the live API service holds them; empty before the first release."""
+    code, body = call(tok, "GET", f"/projects/{project}/services/learn-api/runtime-environment/details")
+    if code == 404:
+        return {}
+    if code >= 300:
+        die(f"reading the live secrets failed with HTTP {code}: {json.dumps(body)[:400]}")
+    env = unwrap(body).get("runtimeEnvironment") or {}
+    return {arg: (env.get(var) or {}).get("value") for arg, var in SECRET_SOURCES.items()
+            if (env.get(var) or {}).get("value")}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("env", choices=["staging", "production"])
@@ -190,11 +212,9 @@ def main() -> int:
     name = want["name"]
     code, body = call(tok, "GET", f"/templates/{name}")
     stored = unwrap(body) if code < 300 else {}
-    overrides = dict(stored.get("argumentOverrides") or {})
-    fresh = [k for k in SECRET_ARGS if k not in overrides]
-    for key in fresh:
-        overrides[key] = template["arguments"][key]  # the ${fn.randomSecret(n)} expression, drawn once
-    want["argumentOverrides"] = overrides
+    # No overrides: an override holding a randomSecret is drawn again each run
+    # and would beat the values passed to the run.
+    want["argumentOverrides"] = {}
     if code == 404:
         code, body = call(tok, "POST", "/templates", want)
     elif code < 300:
@@ -207,17 +227,20 @@ def main() -> int:
     live = unwrap(body)
     if code >= 300 or "gitops" in live or live.get("spec") != want["spec"]:
         die(f"template {name} does not read back equal to the file")
-    missing = [k for k in SECRET_ARGS if k not in (live.get("argumentOverrides") or {})]
-    if missing:
-        die(f"template {name} does not keep these secrets across runs: {missing}")
-    print(f"ok  template {name} saved and reads back equal, no Git link")
-    if fresh:
-        print(f"    secrets drawn on this run and kept from now on: {', '.join(fresh)}")
-        print("    otii's side reads two of them (Keycloak client secret, webhook secret): run kc-bootstrap"
-              " and release or restart otii's backend after this run")
+    if any(k in (live.get("argumentOverrides") or {}) for k in SECRET_ARGS):
+        die(f"template {name} still carries secret argument overrides; they would be drawn again each run")
+    print(f"ok  template {name} saved and reads back equal, no Git link, no secret overrides")
 
     run_args = {k: v for k, v in arguments.items() if k in template["arguments"]}
     run_args["releaseSha"] = image_sha
+    kept = live_secrets(tok, arguments["projectName"])
+    run_args.update(kept)
+    fresh = [k for k in SECRET_ARGS if k not in kept]
+    print(f"ok  secrets passed back in unchanged: {', '.join(k for k in SECRET_ARGS if k in kept) or 'none'}")
+    if fresh:
+        print(f"    secrets drawn on this run (none existed): {', '.join(fresh)}")
+        print("    otii's side reads two of them (Keycloak client secret, webhook secret): run kc-bootstrap"
+              " and release or restart otii's backend after this run")
     code, body = call(tok, "POST", f"/templates/{name}/runs", {"arguments": run_args})
     if code >= 300:
         die(f"starting the run failed with HTTP {code}: {json.dumps(body)[:800]}")
@@ -239,6 +262,12 @@ def main() -> int:
                     errors.append(f"{node.get('ref') or node['kind']}: {str(resp['error'].get('message'))[:300]}")
             for line in errors:
                 print(f"    {line}")
+            if status == "success" and not errors:
+                after = live_secrets(tok, arguments["projectName"])
+                moved = [k for k in kept if after.get(k) != kept[k]]
+                if moved:
+                    die(f"these secrets changed during the run although they were passed in: {moved}")
+                print("ok  secrets read back unchanged after the run")
             return 0 if status == "success" and not errors else 1
         time.sleep(POLL_SECONDS)
     die(f"run {run_id} did not finish in {RUN_TIMEOUT_SECONDS // 60} minutes")

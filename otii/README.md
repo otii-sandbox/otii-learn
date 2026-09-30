@@ -54,10 +54,11 @@ Everything runs in our own cluster. Nothing here touches otii's services.
    `python -m app.scripts.learn_link_org --tier otii --publisher Otii` in a backend job.
 
 Secrets (database password, session key, admin password, Keycloak client secret, webhook secret) are drawn by
-Northflank on the first release and kept on the stored template, so later releases never change them. Two of
-them are read by otii (the Keycloak client secret and the webhook secret): after the first release, and after
-any release the script reports as having drawn them again, run `kc-bootstrap` and release or restart otii's
-backend so both sides hold the same values.
+Northflank on the first release only. Every later release reads them back from the live API service and passes
+them in again (Northflank would otherwise draw new ones on each run, argument overrides included; seen four
+times on staging, 30 Sep 2026), and the script checks after the run that they did not change. Two of them are
+read by otii (the Keycloak client secret and the webhook secret): after the first release, run `kc-bootstrap`
+and release or restart otii's backend so both sides hold the same values.
 
 Production is the same with `production` and `--confirm-production`, only on an explicit go-ahead.
 Undo on Northflank: `python3 otii/northflank/remove.py staging --confirm-remove` (add `--drop-data` to also
