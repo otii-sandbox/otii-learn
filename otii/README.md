@@ -28,7 +28,8 @@ To see it recorded: in the otii repo, `node scripts/otii-learn/record-journey.mj
 ## Setup steps (same on laptop, staging, production)
 Run from `apps/api` with the environment's settings:
 - `python -m src.otii.setup database` creates Otii Learn's database and login (before the API exists).
-- `python -m src.otii.setup all` runs: migrate, admin password from the settings, webhook to otii, otii branding, features off.
+- `python -m src.otii.setup all` runs: migrate, admin password from the settings, webhook to otii, otii branding, features off,
+  public sign-up closed (invite only; people come in through otii's sign-in, which is not affected).
 - Roles: otii super admins are Learn admins (they make courses and can give others a course-making role in
   Learn's admin area, Users > Roles). Everyone else is a learner. Set at each sign-in from the `otii_roles`
   claim otii's Keycloak client adds; a role given by hand in Learn is never lowered by sign-in.
@@ -63,7 +64,7 @@ and release or restart otii's backend so both sides hold the same values.
 Production is the same with `production` and `--confirm-production`, only on an explicit go-ahead.
 `production-arguments.json` holds production's addresses (read from the live production settings on 2 Oct 2026).
 Not yet decided, and so not in that file: where Otii Learn's emails go (the template default is the project's
-`mailpit`, which captures mail and delivers none), and whether the public sign-up page stays open.
+`mailpit`, which captures mail and delivers none).
 Undo on Northflank: `python3 otii/northflank/remove.py staging --confirm-remove` (add `--drop-data` to also
 delete the database), then `python3 otii/northflank/subdomain.py staging remove`.
 
