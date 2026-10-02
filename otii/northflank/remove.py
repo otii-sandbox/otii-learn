@@ -22,11 +22,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from nf import call, die, token, unwrap  # noqa: E402
+from nf import call, die, token, unwrap, use_team  # noqa: E402
 
 SERVICES = ["learn-web", "learn-api", "learn-api-build", "learn-web-build"]
 JOBS = ["learn-setup", "learn-db-provision"]
-GROUPS = ["learn-dbops", "otii-learn-shared", "learn-secrets", "learn-config"]
+GROUPS = ["learn-dbops", "otii-learn-shared", "learn-storage", "learn-secrets", "learn-config"]
 VOLUMES = ["learn-content"]
 
 
@@ -63,7 +63,7 @@ def main() -> int:
         die("this removes Otii Learn from Northflank; add --confirm-remove")
     if args.env == "production" and not args.confirm_production:
         die("production needs --confirm-production, given only on an explicit go-ahead")
-    project = {"staging": "otii-staging", "production": "otii"}[args.env]
+    project = use_team(args.env)["projectName"]
     tok = token()
 
     if args.drop_data:

@@ -8,7 +8,13 @@
   },
   "arguments": {
     "projectName": "otii-staging",
-    "otiiEnvTag": "staging",
+    "otiiBackendService": "backend",
+    "otiiKeycloakJob": "kc-bootstrap",
+    "s3Bucket": "set-per-run",
+    "s3Endpoint": "set-per-run",
+    "s3Region": "set-per-run",
+    "s3AccessKey": "set-per-run",
+    "s3SecretKey": "set-per-run",
     "repoUrl": "https://github.com/otii-sandbox/otii-learn",
     "gitBranch": "otii",
     "releaseSha": "set-per-run",
@@ -53,6 +59,16 @@
           "spec": {
             "name": "otii-learn",
             "description": "Otii Learn workloads. Otii Learn settings attach to this tag only.",
+            "useAsInfrastructureLabel": false
+          },
+          "updateMode": "put"
+        },
+        {
+          "kind": "ResourceTag",
+          "ref": "learnStorageTag",
+          "spec": {
+            "name": "otii-learn-storage",
+            "description": "The Otii Learn workloads that store files. Only the bucket settings attach to it.",
             "useAsInfrastructureLabel": false
           },
           "updateMode": "put"
@@ -311,10 +327,10 @@
               },
               {
                 "kind": "SecretGroup",
-                "ref": "learnShared",
+                "ref": "learnStorage",
                 "spec": {
-                  "name": "otii-learn-shared",
-                  "description": "Values both Otii Learn and otii read: its address, organisation and the two shared secrets.",
+                  "name": "learn-storage",
+                  "description": "otii's bucket settings, for the two Otii Learn workloads that store files. Nothing else of otii's.",
                   "type": "secret",
                   "secretType": "environment-arguments",
                   "priority": 10,
@@ -322,8 +338,46 @@
                     "restricted": true,
                     "nfObjects": [],
                     "tags": [
-                      "otii-learn",
-                      "${args.otiiEnvTag}"
+                      "otii-learn-storage"
+                    ],
+                    "stageIds": []
+                  },
+                  "secrets": {
+                    "variables": {
+                      "S3_BUCKET": "${args.s3Bucket}",
+                      "S3_ENDPOINT": "${args.s3Endpoint}",
+                      "S3_REGION": "${args.s3Region}",
+                      "S3_ACCESS_KEY": "${args.s3AccessKey}",
+                      "S3_SECRET_KEY": "${args.s3SecretKey}"
+                    },
+                    "files": {}
+                  }
+                },
+                "updateMode": "put"
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "learnShared",
+                "spec": {
+                  "name": "otii-learn-shared",
+                  "description": "Values Otii Learn and two otii workloads read: otii's backend (webhook) and kc-bootstrap (sign-in client).",
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [
+                      {
+                        "id": "${args.otiiKeycloakJob}",
+                        "type": "job"
+                      },
+                      {
+                        "id": "${args.otiiBackendService}",
+                        "type": "service"
+                      }
+                    ],
+                    "tags": [
+                      "otii-learn"
                     ],
                     "stageIds": []
                   },
@@ -551,7 +605,7 @@
                   "description": "Otii Learn API (LearnHouse). Files go to otii's bucket, in the Otii Learn folder.",
                   "tags": [
                     "otii-learn",
-                    "${args.otiiEnvTag}"
+                    "otii-learn-storage"
                   ],
                   "billing": {
                     "deploymentPlan": "${refs.apiPlan.id}"
@@ -648,7 +702,7 @@
                   "description": "Runs after the API is up: migrations, the webhook to otii, otii branding, features off. Idempotent.",
                   "tags": [
                     "otii-learn",
-                    "${args.otiiEnvTag}"
+                    "otii-learn-storage"
                   ],
                   "billing": {
                     "deploymentPlan": "${refs.jobPlan.id}"

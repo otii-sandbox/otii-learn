@@ -24,13 +24,18 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
-from nf import call, die, token, unwrap  # noqa: E402
+from nf import call, die, token, unwrap, use_team  # noqa: E402
 
 POLL_SECONDS = 30
 RUN_TIMEOUT_SECONDS = 60 * 60
 PLAN_CAPS_MI = {"learn-api": 768, "learn-web": 512, "learn-job": 384, "learn-build": 4096}
 NAME_PREFIXES = ("learn-", "otii-learn")
 STORAGE_WORKLOADS = ("learn-api", "learn-setup")
+OWN_TAGS = {"otii-learn", "otii-learn-storage"}
+# otii's bucket settings, read from otii's backend at each release and handed
+# to the two storage workloads only: run argument -> the backend's setting.
+STORAGE_SOURCES = {"s3Bucket": "S3_BUCKET", "s3Endpoint": "S3_ENDPOINT", "s3Region": "S3_REGION",
+                   "s3AccessKey": "S3_ACCESS_KEY", "s3SecretKey": "S3_SECRET_KEY"}
 # Northflank draws a ${fn.randomSecret} again on EVERY run, whether it sits in
 # the template arguments or in the stored argument overrides (staging, 30 Sep
 # 2026: four releases, four different Keycloak client secrets, the docs'
@@ -93,17 +98,30 @@ def guard(template: dict, arguments: dict | None = None) -> None:
     for key in ("dbHost", "redisHost"):
         if re.search(r"\.(code\.run|northflank\.com)$", args.get(key, "")):
             problems.append(f"{key} uses Northflank's addon DNS; use the in-cluster service name")
-    # otii's environment label hands a workload every otii setting of that
-    # environment. Only the two that store files need it; learn-web would
-    # also pick up otii's Stripe names, which LearnHouse's web app reads.
+    # No Otii Learn workload or settings group may carry a label that is not
+    # Otii Learn's own. otii's environment label (staging / production) hands a
+    # workload every otii setting of that environment; LearnHouse is
+    # third-party code and gets the five bucket settings, nothing else.
     for node in nodes(template["spec"]):
         spec = node.get("spec", {})
-        if isinstance(spec, dict) and "${args.otiiEnvTag}" in (spec.get("tags") or []):
-            if node["kind"] != "SecretGroup" and spec.get("name") not in STORAGE_WORKLOADS:
-                problems.append(f"{spec.get('name')} carries otii's environment label; only {STORAGE_WORKLOADS} may")
+        if not isinstance(spec, dict):
+            continue
+        tags = spec.get("tags") or (spec.get("restrictions") or {}).get("tags") or []
+        foreign = [t for t in tags if t not in OWN_TAGS]
+        if foreign:
+            problems.append(f"{node['kind']} {spec.get('name')} carries a label that is not Otii Learn's: {foreign}")
+        if "otii-learn-storage" in (spec.get("tags") or []) and spec.get("name") not in STORAGE_WORKLOADS:
+            problems.append(f"{spec.get('name')} carries the storage label; only {STORAGE_WORKLOADS} may")
+        if node["kind"] == "SecretGroup" and spec.get("name") == "otii-learn-shared":
+            allowed = [{"id": "${args.otiiKeycloakJob}", "type": "job"}, {"id": "${args.otiiBackendService}", "type": "service"}]
+            if (spec.get("restrictions") or {}).get("nfObjects") != allowed:
+                problems.append("otii-learn-shared may reach only otii's backend and its kc-bootstrap job")
+    for key in STORAGE_SOURCES:
+        if args.get(key) != "set-per-run":
+            problems.append(f"argument {key} must not be written in the file; it is read from otii at each release")
     run = {**args, **(arguments or {})}
-    if run.get("s3KeyPrefix") != f"{run.get('otiiEnvTag')}/otii-learn/":
-        problems.append("s3KeyPrefix must be <otii environment>/otii-learn/, e.g. staging/otii-learn/")
+    if run.get("s3KeyPrefix") != f"{run.get('environment')}/otii-learn/":
+        problems.append("s3KeyPrefix must be <environment>/otii-learn/, e.g. staging/otii-learn/")
     if problems:
         die("guards failed:\n  " + "\n  ".join(problems))
     print("ok  guards pass")
@@ -167,6 +185,19 @@ def carry_linked_routes(tok: str, template: dict, project: str, domain: str) -> 
                 print(f"    keeps route {route} -> {name}:{port['name']}")
 
 
+def otii_storage(tok: str, project: str, backend: str) -> dict:
+    """The five bucket settings as otii's backend holds them. Never printed."""
+    code, body = call(tok, "GET", f"/projects/{project}/services/{backend}/runtime-environment/details")
+    if code >= 300:
+        die(f"reading otii's bucket settings failed with HTTP {code}")
+    env = unwrap(body).get("runtimeEnvironment") or {}
+    found = {arg: (env.get(var) or {}).get("value") for arg, var in STORAGE_SOURCES.items()}
+    missing = [STORAGE_SOURCES[a] for a, v in found.items() if not v]
+    if missing:
+        die(f"otii's backend has no value for {missing}; Otii Learn cannot store files without them")
+    return found
+
+
 def live_secrets(tok: str, project: str) -> dict:
     """The six secrets as the live API service holds them; empty before the first release."""
     code, body = call(tok, "GET", f"/projects/{project}/services/learn-api/runtime-environment/details")
@@ -189,7 +220,7 @@ def main() -> int:
         die("production needs --confirm-production, given only on an explicit go-ahead")
 
     template = json.loads((HERE / "template.json").read_text())
-    arguments = json.loads((HERE / f"{args.env}-arguments.json").read_text())
+    arguments = use_team(args.env)
     guard(template, arguments)
     check_room()
 
@@ -233,6 +264,8 @@ def main() -> int:
 
     run_args = {k: v for k, v in arguments.items() if k in template["arguments"]}
     run_args["releaseSha"] = image_sha
+    run_args.update(otii_storage(tok, arguments["projectName"], template["arguments"]["otiiBackendService"]))
+    print("ok  otii's five bucket settings read from its backend, for the two storage workloads only")
     kept = live_secrets(tok, arguments["projectName"])
     run_args.update(kept)
     fresh = [k for k in SECRET_ARGS if k not in kept]

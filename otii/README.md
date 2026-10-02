@@ -68,9 +68,12 @@ delete the database), then `python3 otii/northflank/subdomain.py staging remove`
 - Laptop: a folder on disk, as LearnHouse does by default.
 - Staging and production: otii's own private bucket, in the folder `<environment>/otii-learn/`
   (`OTII_LEARN_S3_KEY_PREFIX`). otii's files sit in `<environment>/<organisation number>/`, so the two never meet.
-- Otii Learn uses otii's bucket key. It gets it because `learn-api` and `learn-setup` carry otii's environment
-  label (`staging` / `production`), which also gives them every other otii setting of that environment.
-  `learn-web` does not carry it. The deploy guards refuse any other workload with that label.
+- Otii Learn gets otii's five bucket settings and nothing else of otii's. `deploy.py` reads them from otii's
+  backend at each release and puts them in the `learn-storage` group, which reaches only `learn-api` and
+  `learn-setup` (label `otii-learn-storage`). No Otii Learn workload carries otii's environment label; the
+  deploy guards refuse it. If otii's bucket key changes, rerun `deploy.py`.
+- `otii-learn-shared` (Otii Learn's address, the sign-in client secret, the webhook secret) reaches Otii Learn's
+  workloads plus exactly two of otii's: `backend` and the `kc-bootstrap` job.
 - The folder decides where Otii Learn writes. It does not stop the key reaching the rest of the bucket.
 - Videos play through a short-lived signed link to the one file; the bucket stays private.
 - The disk Otii Learn used before (`learn-content`) is deleted with

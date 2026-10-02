@@ -24,7 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from nf import call, die, token, unwrap  # noqa: E402
+from nf import call, die, token, unwrap, use_team  # noqa: E402
 
 RETIRABLE = ("learn-content",)
 
@@ -60,7 +60,7 @@ def main() -> int:
     if f'"name": "{args.volume}"' in (HERE / "template.json").read_text():
         die(f"template.json still creates {args.volume}; the next deploy would bring it back")
 
-    project = {"staging": "otii-staging", "production": "otii"}[args.env]
+    project = use_team(args.env)["projectName"]
     path = f"/projects/{project}/volumes/{args.volume}"
     tok = token()
     code, body = call(tok, "GET", path)

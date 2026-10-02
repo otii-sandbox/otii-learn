@@ -12,11 +12,14 @@ import json
 from pathlib import Path
 
 TAG = "otii-learn"
-# Otii Learn workloads that store files also carry otii's environment label
-# (staging / production) so they read otii's bucket settings and key from
-# otii's own settings groups: no copy of the key exists. Their files go in
-# the s3KeyPrefix folder. The web app does not store files and is not labelled.
-STORAGE_TAGS = [TAG, "${args.otiiEnvTag}"]
+# Least privilege (2 Oct 2026): no Otii Learn workload carries otii's own
+# environment label any more. That label hands a workload every otii setting
+# of the environment (database address, Stripe, Keycloak admin, mail: 90 of
+# them) and LearnHouse is third-party code. The two workloads that store files
+# carry STORAGE_TAG instead and get the five bucket settings, nothing else:
+# deploy.py reads them from otii's backend at each release and passes them in.
+STORAGE_TAG = "otii-learn-storage"
+STORAGE_TAGS = [TAG, STORAGE_TAG]
 
 
 def plan(ref, name, kind, cpu_limit, mem_limit, cpu_request=None, mem_request=None):
@@ -34,14 +37,16 @@ def plan(ref, name, kind, cpu_limit, mem_limit, cpu_request=None, mem_request=No
             "updateMode": "put"}
 
 
-def group(ref, name, description, variables, tags=None, jobs=None, addon=None, priority=10):
+def group(ref, name, description, variables, tags=None, jobs=None, addon=None, priority=10, services=None):
     spec = {
         "name": name,
         "description": description,
         "type": "secret",
         "secretType": "environment-arguments",
         "priority": priority,
-        "restrictions": {"restricted": True, "nfObjects": [{"id": j, "type": "job"} for j in (jobs or [])],
+        "restrictions": {"restricted": True,
+                         "nfObjects": [{"id": j, "type": "job"} for j in (jobs or [])]
+                                      + [{"id": v, "type": "service"} for v in (services or [])],
                          "tags": tags or [], "stageIds": []},
         "secrets": {"variables": variables, "files": {}},
     }
@@ -196,14 +201,22 @@ spec_steps = [
         "OTII_LEARN_DB_PASSWORD": "${args.dbPassword}",
     }, tags=[TAG], addon=[{"addonId": "${args.redisAddonId}",
                            "keys": [{"keyName": "PASSWORD", "aliases": ["REDIS_PASSWORD"]}]}]),
+    group("learnStorage", "learn-storage",
+          "otii's bucket settings, for the two Otii Learn workloads that store files. Nothing else of otii's.", {
+              "S3_BUCKET": "${args.s3Bucket}",
+              "S3_ENDPOINT": "${args.s3Endpoint}",
+              "S3_REGION": "${args.s3Region}",
+              "S3_ACCESS_KEY": "${args.s3AccessKey}",
+              "S3_SECRET_KEY": "${args.s3SecretKey}",
+          }, tags=[STORAGE_TAG]),
     group("learnShared", "otii-learn-shared",
-          "Values both Otii Learn and otii read: its address, organisation and the two shared secrets.", {
+          "Values Otii Learn and two otii workloads read: otii's backend (webhook) and kc-bootstrap (sign-in client).", {
               "OTII_LEARN_PUBLIC_URL": "${args.publicUrl}",
               "OTII_LEARN_ORG_SLUG": "${args.orgSlug}",
               "OTII_LEARN_API_URL": "http://learn-api:9000",
               "OTII_LEARN_KEYCLOAK_CLIENT_SECRET": "${args.kcClientSecret}",
               "OTII_LEARN_WEBHOOK_SECRET": "${args.webhookSecret}",
-          }, tags=[TAG, "${args.otiiEnvTag}"]),
+          }, tags=[TAG], services=["${args.otiiBackendService}"], jobs=["${args.otiiKeycloakJob}"]),
     build_service("apiBuild", "learn-api-build", "/apps/api/Dockerfile", "/apps/api"),
     build_run("apiBuildRun", "apiBuild"),
     build_service("webBuild", "learn-web-build", "/apps/web/Dockerfile", "/apps/web"),
@@ -247,7 +260,13 @@ template = {
     "options": {"autorun": False, "concurrencyPolicy": "queue"},
     "arguments": {
         "projectName": "otii-staging",
-        "otiiEnvTag": "staging",
+        "otiiBackendService": "backend",
+        "otiiKeycloakJob": "kc-bootstrap",
+        "s3Bucket": "set-per-run",
+        "s3Endpoint": "set-per-run",
+        "s3Region": "set-per-run",
+        "s3AccessKey": "set-per-run",
+        "s3SecretKey": "set-per-run",
         "repoUrl": "https://github.com/otii-sandbox/otii-learn",
         "gitBranch": "otii",
         "releaseSha": "set-per-run",
@@ -284,6 +303,9 @@ template = {
     "spec": {"kind": "Workflow", "spec": {"type": "sequential", "steps": [
         {"kind": "ResourceTag", "ref": "learnTag", "spec": {
             "name": TAG, "description": "Otii Learn workloads. Otii Learn settings attach to this tag only.",
+            "useAsInfrastructureLabel": False}, "updateMode": "put"},
+        {"kind": "ResourceTag", "ref": "learnStorageTag", "spec": {
+            "name": STORAGE_TAG, "description": "The Otii Learn workloads that store files. Only the bucket settings attach to it.",
             "useAsInfrastructureLabel": False}, "updateMode": "put"},
         plan("apiPlan", "learn-api", "service", 0.5, 768, 0.1, 384),
         plan("webPlan", "learn-web", "service", 0.5, 512, 0.1, 256),

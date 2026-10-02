@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nf import call, die, token, unwrap  # noqa: E402
+from nf import call, die, token, unwrap, use_team  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
@@ -28,7 +28,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2 or argv[1] not in ("create", "verify", "routes", "remove"):
         die(__doc__)
     env, action = argv
-    args = json.loads((HERE / f"{env}-arguments.json").read_text())
+    args = use_team(env)
     domain, sub = args["dnsDomain"], args["subdomain"]
     tok = token()
     base = f"/domains/{domain}/subdomains"

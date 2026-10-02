@@ -1,4 +1,6 @@
 {
+  "team": "dev",
+  "environment": "staging",
   "projectName": "otii-staging",
   "domain": "learn-staging.get-otii.com",
   "subdomain": "learn-staging",
@@ -6,7 +8,6 @@
   "apiPort": "p01",
   "webService": "learn-web",
   "webPort": "p01",
-  "otiiEnvTag": "staging",
   "publicUrl": "https://learn-staging.get-otii.com",
   "frameAncestors": "https://staging.get-otii.com",
   "keycloakUrl": "https://auth-staging.get-otii.com",

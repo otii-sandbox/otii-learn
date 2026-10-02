@@ -10,6 +10,20 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.northflank.com/v1"
+_TEAM = ""
+
+
+def use_team(env: str) -> dict:
+    """Load <env>-arguments.json and send every call through its Northflank team.
+
+    The login is organisation-wide since 1 Oct 2026: Northflank refuses any
+    call without the team in its address (HTTP 403)."""
+    global _TEAM
+    arguments = json.loads((Path(__file__).resolve().parent / f"{env}-arguments.json").read_text())
+    if not arguments.get("team"):
+        die(f"{env}-arguments.json has no team (the Northflank team id that owns the project)")
+    _TEAM = arguments["team"]
+    return arguments
 
 
 def die(message: str) -> None:
@@ -30,7 +44,9 @@ def token() -> str:
 
 def call(tok: str, method: str, path: str, body=None) -> tuple[int, dict]:
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(API + path, data=data, method=method,
+    if not _TEAM:
+        die("no Northflank team set: call nf.use_team(<environment>) first")
+    req = urllib.request.Request(f"{API}/teams/{_TEAM}{path}", data=data, method=method,
                                  headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
