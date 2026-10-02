@@ -1,0 +1,17 @@
+{
+  "team": "dev",
+  "environment": "production",
+  "projectName": "otii",
+  "domain": "learn.get-otii.com",
+  "subdomain": "learn",
+  "apiService": "learn-api",
+  "apiPort": "p01",
+  "webService": "learn-web",
+  "webPort": "p01",
+  "publicUrl": "https://learn.get-otii.com",
+  "frameAncestors": "https://app.get-otii.com",
+  "keycloakUrl": "https://auth.get-otii.com",
+  "keycloakRealm": "otii",
+  "dnsDomain": "get-otii.com",
+  "s3KeyPrefix": "production/otii-learn/"
+}

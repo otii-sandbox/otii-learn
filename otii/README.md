@@ -61,6 +61,9 @@ read by otii (the Keycloak client secret and the webhook secret): after the firs
 and release or restart otii's backend so both sides hold the same values.
 
 Production is the same with `production` and `--confirm-production`, only on an explicit go-ahead.
+`production-arguments.json` holds production's addresses (read from the live production settings on 2 Oct 2026).
+Not yet decided, and so not in that file: where Otii Learn's emails go (the template default is the project's
+`mailpit`, which captures mail and delivers none), and whether the public sign-up page stays open.
 Undo on Northflank: `python3 otii/northflank/remove.py staging --confirm-remove` (add `--drop-data` to also
 delete the database), then `python3 otii/northflank/subdomain.py staging remove`.
 
