@@ -32,8 +32,10 @@ PLAN_CAPS_MI = {"learn-api": 768, "learn-web": 512, "learn-job": 384, "learn-bui
 NAME_PREFIXES = ("learn-", "otii-learn")
 STORAGE_WORKLOADS = ("learn-api", "learn-setup")
 OWN_TAGS = {"otii-learn", "otii-learn-storage"}
-# otii's bucket settings, read from otii's backend at each release and handed
-# to the two storage workloads only: run argument -> the backend's setting.
+# Otii Learn's own storage settings, carried from its live learn-storage group at each release
+# and handed to the two storage workloads only: run argument -> setting. They are Learn's own
+# storage-relay key, set by otii-storage-relay's connect_app.py. Never read from otii's backend:
+# that would hand otii's key to Learn (20 Oct 2026, one key per app).
 STORAGE_SOURCES = {"s3Bucket": "S3_BUCKET", "s3Endpoint": "S3_ENDPOINT", "s3Region": "S3_REGION",
                    "s3AccessKey": "S3_ACCESS_KEY", "s3SecretKey": "S3_SECRET_KEY"}
 # Northflank draws a ${fn.randomSecret} again on EVERY run, whether it sits in
@@ -185,16 +187,16 @@ def carry_linked_routes(tok: str, template: dict, project: str, domain: str) -> 
                 print(f"    keeps route {route} -> {name}:{port['name']}")
 
 
-def otii_storage(tok: str, project: str, backend: str) -> dict:
-    """The five bucket settings as otii's backend holds them. Never printed."""
-    code, body = call(tok, "GET", f"/projects/{project}/services/{backend}/runtime-environment/details")
-    if code >= 300:
-        die(f"reading otii's bucket settings failed with HTTP {code}")
-    env = unwrap(body).get("runtimeEnvironment") or {}
-    found = {arg: (env.get(var) or {}).get("value") for arg, var in STORAGE_SOURCES.items()}
+def own_storage(tok: str, project: str) -> dict:
+    """The five storage settings as Learn's own learn-storage group holds them. Never printed."""
+    code, body = call(tok, "GET", f"/projects/{project}/secrets/learn-storage?show=this")
+    env = ((unwrap(body).get("secrets") or {}).get("variables") or {}) if code < 300 else {}
+    found = {arg: env.get(var) for arg, var in STORAGE_SOURCES.items()}
     missing = [STORAGE_SOURCES[a] for a, v in found.items() if not v]
     if missing:
-        die(f"otii's backend has no value for {missing}; Otii Learn cannot store files without them")
+        die(f"learn-storage has no value for {missing}. Give Otii Learn its own storage key first: in "
+            "otii-storage-relay, connect_app.py <env> learn --group learn-storage --create-tag otii-learn-storage "
+            "--folder <environment>/otii-learn")
     return found
 
 
@@ -264,8 +266,8 @@ def main() -> int:
 
     run_args = {k: v for k, v in arguments.items() if k in template["arguments"]}
     run_args["releaseSha"] = image_sha
-    run_args.update(otii_storage(tok, arguments["projectName"], template["arguments"]["otiiBackendService"]))
-    print("ok  otii's five bucket settings read from its backend, for the two storage workloads only")
+    run_args.update(own_storage(tok, arguments["projectName"]))
+    print("ok  Learn's own five storage settings carried from learn-storage, for the two storage workloads only")
     kept = live_secrets(tok, arguments["projectName"])
     run_args.update(kept)
     fresh = [k for k in SECRET_ARGS if k not in kept]
