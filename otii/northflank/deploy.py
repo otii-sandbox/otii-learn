@@ -120,10 +120,14 @@ def guard(template: dict, arguments: dict | None = None) -> None:
                 problems.append("otii-learn-shared may reach only otii's backend and its kc-bootstrap job")
     for key in STORAGE_SOURCES:
         if args.get(key) != "set-per-run":
-            problems.append(f"argument {key} must not be written in the file; it is read from otii at each release")
+            problems.append(f"argument {key} must not be written in the file; it is carried from learn-storage at each release")
     run = {**args, **(arguments or {})}
-    if run.get("s3KeyPrefix") != f"{run.get('environment')}/otii-learn/":
-        problems.append("s3KeyPrefix must be <environment>/otii-learn/, e.g. staging/otii-learn/")
+    # Learn's own top folder, otii-learn/<environment>/, which only Learn's storage-relay key opens
+    # (staging moved 20 Oct 2026). <environment>/otii-learn/ inside otii's folder stays allowed
+    # until production moves too.
+    env = run.get("environment")
+    if run.get("s3KeyPrefix") not in (f"otii-learn/{env}/", f"{env}/otii-learn/"):
+        problems.append("s3KeyPrefix must be otii-learn/<environment>/ (or, before the move, <environment>/otii-learn/)")
     if problems:
         die("guards failed:\n  " + "\n  ".join(problems))
     print("ok  guards pass")

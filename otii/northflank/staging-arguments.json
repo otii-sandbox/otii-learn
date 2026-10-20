@@ -13,5 +13,5 @@
   "keycloakUrl": "https://auth-staging.get-otii.com",
   "keycloakRealm": "otii-staging",
   "dnsDomain": "get-otii.com",
-  "s3KeyPrefix": "staging/otii-learn/"
+  "s3KeyPrefix": "otii-learn/staging/"
 }
