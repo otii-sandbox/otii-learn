@@ -24,6 +24,14 @@ No undo is needed: the old values open under the old key, so to go back put
 the old key in LEARNHOUSE_AUTH_JWT_SECRET_KEY, the new one in
 LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS, and run this step again.
 
+Values no key opens (made under a key that is gone) stop the step. When each is
+explained and accepted as lost, clear them once with CLEAR_UNREADABLE=yes on
+an --apply run: each becomes "" (what the column holds when nothing is stored),
+compare-and-set like a move, and its row id is printed so it can be put back from
+the database backup taken before the run. Nothing changes for a user: an empty
+and an unreadable secret are already treated alike (2FA: "broken", never "not
+enrolled"; webhooks: the delivery is skipped with a warning).
+
 Not in `all`: it is meant to run once per rotation, by hand, after the new key
 is live; and a value no key opens must stop it loudly, which inside `all`
 would stop every release job.
@@ -35,6 +43,7 @@ LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS (and LEARNHOUSE_MFA_ENCRYPTION_KEY if se
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -62,7 +71,9 @@ class Counts:
     changed_meanwhile: int = 0
     unreadable: int = 0
     empty: int = 0
+    cleared: int = 0
     pending: list = field(default_factory=list)  # (id, old value, plaintext); never printed
+    lost: list = field(default_factory=list)  # (id, old value) no key opens; never printed
 
     def line(self, name: str, apply: bool) -> str:
         verb = "moved to the current key" if apply else "on a previous key (would move)"
@@ -70,6 +81,8 @@ class Counts:
         if apply:
             parts.append(f"{self.changed_meanwhile} changed by the app meanwhile, left alone")
         parts += [f"{self.unreadable} open under no key", f"{self.empty} empty"]
+        if self.cleared:
+            parts.append(f"{self.cleared} of those cleared")
         return f"  {name}: " + ", ".join(parts)
 
 
@@ -111,6 +124,7 @@ async def scan(engine: AsyncEngine, cols: list[Column]) -> dict[str, Counts]:
                 index, plain = _open(ring, value)
                 if index is None:
                     counts.unreadable += 1
+                    counts.lost.append((row_id, value))
                 elif index == 0:
                     counts.current += 1
                 else:
@@ -120,8 +134,9 @@ async def scan(engine: AsyncEngine, cols: list[Column]) -> dict[str, Counts]:
     return result
 
 
-async def write(engine: AsyncEngine, cols: list[Column], found: dict[str, Counts]) -> None:
-    """Re-encrypt each pending value under the current key, compare-and-set, one transaction per row."""
+async def write(engine: AsyncEngine, cols: list[Column], found: dict[str, Counts], clear: bool = False) -> None:
+    """Re-encrypt each pending value under the current key, compare-and-set, one transaction per row.
+    With ``clear``, each value no key opens becomes "" the same way."""
     for col in cols:
         table = col.table.__table__
         counts = found[col.name]
@@ -141,6 +156,19 @@ async def write(engine: AsyncEngine, cols: list[Column], found: dict[str, Counts
                 counts.changed_meanwhile += 1
         counts.moved = moved
         counts.pending = []
+        if not clear:
+            continue
+        for row_id, old in counts.lost:
+            async with engine.begin() as conn:
+                hit = await conn.execute(
+                    update(table).where(table.c.id == row_id, table.c[col.column] == old).values({col.column: ""})
+                )
+            if hit.rowcount == 1:
+                counts.cleared += 1
+                print(f"cleared unreadable {col.name} id={row_id}")
+            else:
+                counts.changed_meanwhile += 1
+        counts.lost = []
 
 
 async def hash_counts(engine: AsyncEngine) -> list[str]:
@@ -172,15 +200,17 @@ async def hash_counts(engine: AsyncEngine) -> list[str]:
     return lines
 
 
-async def reencrypt(engine: AsyncEngine, apply: bool, cols: list[Column] | None = None) -> tuple[str, int]:
-    """Returns (report, number of values no key opens). Never includes a value in the report."""
+async def reencrypt(
+    engine: AsyncEngine, apply: bool, cols: list[Column] | None = None, clear: bool = False
+) -> tuple[str, int]:
+    """Returns (report, number of values no key opens and not cleared). Never includes a value in the report."""
     from src.security.security import PREVIOUS_SECRET_KEYS
 
     cols = cols if cols is not None else columns()
     found = await scan(engine, cols)
     if apply:
-        await write(engine, cols, found)
-    unreadable = sum(c.unreadable for c in found.values())
+        await write(engine, cols, found, clear=clear)
+    unreadable = sum(c.unreadable - c.cleared for c in found.values())
     head = "reencrypt: " + ("applied" if apply else "dry run, nothing written (add --apply to write)")
     lines = [head, f"  previous keys in the ring: {len(PREVIOUS_SECRET_KEYS)}"]
     lines += [found[c.name].line(c.name, apply) for c in cols]
@@ -196,12 +226,18 @@ async def reencrypt(engine: AsyncEngine, apply: bool, cols: list[Column] | None 
 async def _run(apply: bool) -> tuple[str, int]:
     engine = create_async_engine(require("LEARNHOUSE_SQL_CONNECTION_STRING"))
     try:
-        return await reencrypt(engine, apply)
+        return await reencrypt(engine, apply, clear=clear_requested())
     finally:
         await engine.dispose()
 
 
+def clear_requested() -> bool:
+    return os.environ.get("CLEAR_UNREADABLE", "").strip().lower() == "yes"
+
+
 def run(remove: bool = False, apply: bool = False) -> str:
+    if clear_requested() and not apply:
+        raise SystemExit("reencrypt: CLEAR_UNREADABLE=yes only works with --apply (a dry run already counts them)")
     if remove:
         return ("reencrypt: no undo needed; to go back swap the two key settings "
                 "(old key current, new key previous) and run reencrypt --apply again")

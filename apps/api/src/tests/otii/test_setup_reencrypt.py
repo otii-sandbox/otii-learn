@@ -256,3 +256,69 @@ async def test_the_command_end_to_end_on_a_database_file(tmp_path):
         assert OLD_KEY not in out.stdout + out.stderr and SECRET_KEY not in out.stdout + out.stderr
         assert "T1" not in out.stdout
     await engine.dispose()
+
+
+# --- clearing values no key opens (31 Oct 2026) -----------------------------
+
+async def test_clear_empties_only_what_no_key_opens(engine, stored, admin_user, regular_user, capsys):
+    report, unreadable = await step.reencrypt(engine, apply=True, clear=True)
+    hooks, mfa = await snapshot(engine)
+    assert unreadable == 0
+    assert hooks["w_lost"] == ""
+    assert current_only(hooks["w_old"], "webhook") == "secret-old"
+    assert current_only(hooks["w_cur"], "webhook") == "secret-cur"
+    assert current_only(mfa[admin_user.id], "mfa") == "TOTPOLD"
+    assert current_only(mfa[regular_user.id], "mfa") == "TOTPCUR"
+    assert "1 of those cleared" in report
+    assert "cleared unreadable webhook_endpoint.secret_encrypted id=" in capsys.readouterr().out
+    again, left = await step.reencrypt(engine, apply=False)
+    assert left == 0 and "0 open under no key" in again
+
+
+async def test_clear_does_nothing_on_a_dry_run(engine, stored):
+    before = await snapshot(engine)
+    _, unreadable = await step.reencrypt(engine, apply=False, clear=True)
+    assert unreadable == 1
+    assert await snapshot(engine) == before
+
+
+async def test_clear_never_empties_a_value_the_app_changed_after_the_read(engine, stored):
+    cols = step.columns()
+    found = await step.scan(engine, cols)
+    fresh = webhook_crypto.encrypt_secret("re-entered")
+    async with engine.begin() as conn:
+        await conn.execute(update(WebhookEndpoint.__table__).where(WebhookEndpoint.__table__.c.webhook_uuid == "w_lost")
+                           .values(secret_encrypted=fresh))
+    await step.write(engine, cols, found, clear=True)
+    hooks, _ = await snapshot(engine)
+    assert hooks["w_lost"] == fresh
+    counts = found["webhook_endpoint.secret_encrypted"]
+    assert (counts.cleared, counts.changed_meanwhile) == (0, 1)
+
+
+def test_clear_switch_needs_apply_and_reaches_the_step(monkeypatch):
+    seen = {}
+
+    async def fake(apply):
+        seen["clear"] = step.clear_requested()
+        return "reencrypt: report", 0
+
+    monkeypatch.setattr(step, "_run", fake)
+    monkeypatch.setenv("CLEAR_UNREADABLE", "yes")
+    with pytest.raises(SystemExit, match="only works with --apply"):
+        step.run()
+    assert step.run(apply=True) == "reencrypt: report" and seen["clear"] is True
+    monkeypatch.setenv("CLEAR_UNREADABLE", "")
+    step.run(apply=True)
+    assert seen["clear"] is False
+
+
+def test_readers_treat_an_empty_secret_as_they_treat_an_unreadable_one():
+    """2FA: both are "broken" (None), never "not enrolled". Webhooks: both refuse to
+    decrypt, so the delivery is skipped with a warning, as before."""
+    assert mfa_module.decrypt_secret("") is None
+    assert mfa_module.decrypt_secret(mfa_ciphertext(OTHER_KEY, "T")) is None
+    with pytest.raises(Exception):
+        webhook_crypto.decrypt_secret("")
+    with pytest.raises(Exception):
+        webhook_crypto.decrypt_secret(webhook_ciphertext(OTHER_KEY, "s"))
