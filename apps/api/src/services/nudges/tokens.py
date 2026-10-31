@@ -10,6 +10,9 @@ rotating that secret invalidates every unsubscribe link already sitting in
 people's inboxes. The endpoint therefore treats an unverifiable token as
 "expired" and points the reader at their dashboard, rather than returning a
 bare 403 to someone who is legitimately trying to opt out.
+
+otii: while the old key sits in LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS, links
+signed with it still verify (src/otii/key_ring.py).
 """
 
 import base64
@@ -20,6 +23,7 @@ import hmac
 from typing import Optional
 
 from config.config import get_learnhouse_config
+from src.otii.key_ring import previous_keys
 
 # Bumped if the token format ever changes, so old tokens fail closed rather
 # than being reinterpreted under new rules.
@@ -41,12 +45,22 @@ def _unsub_secret() -> bytes:
     webhook Fernet key) so a token from one subsystem is meaningless in another.
     """
     secret = get_learnhouse_config().security_config.auth_jwt_secret_key
+    return _derive_unsub_secret(secret)
+
+
+def _derive_unsub_secret(secret: str) -> bytes:
     return hashlib.sha256(f"learnhouse.unsubscribe.{_TOKEN_VERSION}|".encode() + secret.encode()).digest()
 
 
-def _sign(user_uuid: str, category: str) -> str:
+def _previous_unsub_secrets() -> tuple[bytes, ...]:
+    """otii: links signed under LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS still verify."""
+    current = get_learnhouse_config().security_config.auth_jwt_secret_key
+    return tuple(_derive_unsub_secret(k) for k in previous_keys(current))
+
+
+def _sign(user_uuid: str, category: str, key: bytes | None = None) -> str:
     return hmac.new(
-        _unsub_secret(),
+        key or _unsub_secret(),
         f"{category}:{user_uuid}".encode(),
         hashlib.sha256,
     ).hexdigest()[:_SIGNATURE_LENGTH]
@@ -84,7 +98,9 @@ def verify_unsubscribe_token(
     if not user_uuid:
         return None
 
-    if not hmac.compare_digest(signature, _sign(user_uuid, category)):
-        return None
-
-    return user_uuid
+    if hmac.compare_digest(signature, _sign(user_uuid, category)):
+        return user_uuid
+    for key in _previous_unsub_secrets():
+        if hmac.compare_digest(signature, _sign(user_uuid, category, key)):
+            return user_uuid
+    return None
