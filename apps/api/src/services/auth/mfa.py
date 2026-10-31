@@ -15,6 +15,15 @@ zero-config for existing deployments, but it couples the two:
         makes every enrolled TOTP secret undecryptable, locking out every user
         who has 2FA on. Set the dedicated key before rotating.
 
+otii: when ``LEARNHOUSE_MFA_ENCRYPTION_KEY`` is unset, the JWT key ring is used
+instead (src/otii/key_ring.py): new secrets are encrypted under the current
+JWT key, and a secret encrypted under a key in
+``LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS`` still decrypts until
+``python -m src.otii.setup reencrypt --apply`` moves it. Backup-code hashes are
+peppered with the JWT key whatever the MFA key is, so they match under every
+key of the ring too. When ``LEARNHOUSE_MFA_ENCRYPTION_KEY`` is set, secrets use
+that key alone, as before.
+
 Enrolled users whose secret fails to decrypt are treated as "MFA broken" and
 must recover via backup code — never as "MFA not enabled", which would
 silently downgrade them to single-factor.
@@ -30,7 +39,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 import pyotp
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sqlalchemy import or_, update
@@ -38,7 +47,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.user_mfa import UserMFA, UserMFABackupCode
-from src.security.security import SECRET_KEY
+from src.security.security import PREVIOUS_SECRET_KEYS, SECRET_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +66,16 @@ _BACKUP_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 _MFA_KEY_INFO = b"learnhouse-mfa-secret-encryption-v1"
 _fernet_cached: Optional[Fernet] = None
+_fernet_ring_cached: Optional[List[Fernet]] = None
+
+
+def _derive_fernet(material) -> Fernet:
+    if isinstance(material, str):
+        material = material.encode()
+    derived = HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=_MFA_KEY_INFO
+    ).derive(material)
+    return Fernet(base64.urlsafe_b64encode(derived))
 
 
 def _get_fernet() -> Fernet:
@@ -70,14 +89,25 @@ def _get_fernet() -> Fernet:
             "No key material available for MFA secret encryption: set "
             "LEARNHOUSE_MFA_ENCRYPTION_KEY or the JWT secret."
         )
-    if isinstance(material, str):
-        material = material.encode()
 
-    derived = HKDF(
-        algorithm=hashes.SHA256(), length=32, salt=None, info=_MFA_KEY_INFO
-    ).derive(material)
-    _fernet_cached = Fernet(base64.urlsafe_b64encode(derived))
+    _fernet_cached = _derive_fernet(material)
     return _fernet_cached
+
+
+def mfa_fernet_ring() -> List[Fernet]:
+    """otii: the keys a stored MFA secret may be under, current first.
+
+    LEARNHOUSE_MFA_ENCRYPTION_KEY set: that key only (unchanged behaviour).
+    Unset: the current JWT key, then each previous JWT key.
+    """
+    global _fernet_ring_cached
+    if _fernet_ring_cached is not None:
+        return _fernet_ring_cached
+    ring = [_get_fernet()]
+    if not os.environ.get("LEARNHOUSE_MFA_ENCRYPTION_KEY"):
+        ring += [_derive_fernet(key) for key in PREVIOUS_SECRET_KEYS]
+    _fernet_ring_cached = ring
+    return _fernet_ring_cached
 
 
 def encrypt_secret(secret: str) -> str:
@@ -87,7 +117,7 @@ def encrypt_secret(secret: str) -> str:
 def decrypt_secret(encrypted: str) -> Optional[str]:
     """Return the plaintext TOTP secret, or ``None`` if it cannot be decrypted."""
     try:
-        return _get_fernet().decrypt(encrypted.encode()).decode()
+        return MultiFernet(mfa_fernet_ring()).decrypt(encrypted.encode()).decode()
     except (InvalidToken, ValueError, TypeError):
         # Almost always a rotated key. Surfaced to the caller as "broken",
         # never as "not enrolled".
@@ -190,11 +220,29 @@ async def verify_and_consume_totp(
 ### 🔒 Backup codes ##############################################################
 
 
-_BACKUP_PEPPER = SECRET_KEY.encode() if isinstance(SECRET_KEY, str) else bytes(SECRET_KEY or b"")
+def _pepper(key) -> bytes:
+    return key.encode() if isinstance(key, str) else bytes(key or b"")
+
+
+_BACKUP_PEPPER = _pepper(SECRET_KEY)
+# otii: codes issued under a previous JWT key still match while that key is in
+# LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS. A hash cannot be moved to the new key
+# (the code itself is never stored), so such a code stops working once the
+# previous key is removed; the user regenerates their codes.
+_PREVIOUS_BACKUP_PEPPERS = tuple(_pepper(key) for key in PREVIOUS_SECRET_KEYS)
+
+
+def _hash_backup_code_with(pepper: bytes, code: str) -> str:
+    return hashlib.sha256(pepper + _normalize_code(code).encode()).hexdigest()
 
 
 def hash_backup_code(code: str) -> str:
-    return hashlib.sha256(_BACKUP_PEPPER + _normalize_code(code).encode()).hexdigest()
+    return _hash_backup_code_with(_BACKUP_PEPPER, code)
+
+
+def backup_code_hashes(code: str) -> List[str]:
+    """The hashes ``code`` may be stored under: current key first, then each previous key."""
+    return [_hash_backup_code_with(p, code) for p in (_BACKUP_PEPPER, *_PREVIOUS_BACKUP_PEPPERS)]
 
 
 def generate_backup_codes(count: int = BACKUP_CODE_COUNT) -> List[str]:
@@ -263,7 +311,7 @@ async def consume_backup_code(db_session: AsyncSession, user_id: int, code: str)
         update(UserMFABackupCode)
         .where(
             UserMFABackupCode.user_id == user_id,
-            UserMFABackupCode.code_hash == hash_backup_code(code),
+            UserMFABackupCode.code_hash.in_(backup_code_hashes(code)),  # type: ignore[attr-defined]
             UserMFABackupCode.used_at.is_(None),  # type: ignore[union-attr]
         )
         .values(used_at=str(datetime.now()))

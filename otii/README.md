@@ -55,11 +55,34 @@ Everything runs in our own cluster. Nothing here touches otii's services.
    `python -m app.scripts.learn_link_org --tier otii --publisher Otii` in a backend job.
 
 Secrets (database password, session key, admin password, Keycloak client secret, webhook secret) are drawn by
-Northflank on the first release only. Every later release reads them back from the live API service and passes
-them in again (Northflank would otherwise draw new ones on each run, argument overrides included; seen four
-times on staging, 30 Sep 2026), and the script checks after the run that they did not change. Two of them are
-read by otii (the Keycloak client secret and the webhook secret): after the first release, run `kc-bootstrap`
-and release or restart otii's backend so both sides hold the same values.
+Northflank on the first release only. The settings groups that hold secrets (`learn-secrets`, `learn-storage`,
+`otii-learn-shared`) are `updateMode: create`: a release creates a missing group and never rewrites an existing
+one, so a release can never put back or blank a rotated value. They are also `secretType: environment`: the
+running services and jobs get them, builds never do (neither Dockerfile reads them; the web app's
+`NEXT_PUBLIC_*` values are read at start and stay in `learn-config`). Because an existing group is never
+rewritten, a change to one of these groups in `make_template.py` (a new key, a new restriction) reaches
+staging and production only when the live group is changed once by hand. As a second guard every release
+still reads the six secrets back from the live API service and passes them in again (Northflank draws a new
+`${fn.randomSecret}` on each run, argument overrides included; seen four times on staging, 30 Sep 2026), and
+the script checks after the run that they did not change. Two of them are read by otii (the Keycloak client
+secret and the webhook secret): after the first release, run `kc-bootstrap` and release or restart otii's
+backend so both sides hold the same values.
+
+### Rotating the session key (`LEARNHOUSE_AUTH_JWT_SECRET_KEY`)
+The session key signs logins and is also the key for stored webhook secrets and 2FA secrets (encrypted), API
+token and 2FA backup-code hashes, and unsubscribe links. Changing it alone would sign everyone out and lock
+every 2FA user out. So:
+1. Put the new key in `LEARNHOUSE_AUTH_JWT_SECRET_KEY` and the old one in
+   `LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS` (comma-separated, newest first); restart `learn-api`.
+   Old keys are only ever used to read: old logins, old encrypted values, old hashes and links still work.
+2. In a `learn-api` image (same settings): `python -m src.otii.setup reencrypt` shows counts only;
+   `python -m src.otii.setup reencrypt --apply` moves every encrypted value to the new key. It exits non-zero
+   if any value opens under no key; it never prints a value.
+3. Run the dry run again: nothing left on a previous key. Then empty `LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS`
+   and restart.
+While the old key is in the ring, anyone holding it can still sign a login. After a leak keep steps 1 to 3
+short. Hashes cannot be moved: an API token moves to the new key at its next use, and 2FA backup codes made
+before the rotation stop working at step 3 (the step 2 report counts both; those people regenerate codes).
 
 Production is the same with `production` and `--confirm-production`, only on an explicit go-ahead.
 `production-arguments.json` holds production's addresses (read from the live production settings on 2 Oct 2026).
@@ -75,7 +98,8 @@ delete the database), then `python3 otii/northflank/subdomain.py staging remove`
 - Otii Learn gets otii's five bucket settings and nothing else of otii's. `deploy.py` reads them from otii's
   backend at each release and puts them in the `learn-storage` group, which reaches only `learn-api` and
   `learn-setup` (label `otii-learn-storage`). No Otii Learn workload carries otii's environment label; the
-  deploy guards refuse it. If otii's bucket key changes, rerun `deploy.py`.
+  deploy guards refuse it. `learn-storage` is never rewritten by a release (see above): if the bucket key
+  changes, change the group itself.
 - `otii-learn-shared` (Otii Learn's address, the sign-in client secret, the webhook secret) reaches Otii Learn's
   workloads plus exactly two of otii's: `backend` and the `kc-bootstrap` job.
 - The folder decides where Otii Learn writes. It does not stop the key reaching the rest of the bucket.

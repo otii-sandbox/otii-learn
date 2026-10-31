@@ -37,12 +37,28 @@ def plan(ref, name, kind, cpu_limit, mem_limit, cpu_request=None, mem_request=No
             "updateMode": "put"}
 
 
+# Groups that hold secrets (31 Oct 2026, after the Northflank breach):
+# - updateMode "create": a run creates the group once and never rewrites it, so a
+#   rotated value is never put back or blanked by a later run. The template's
+#   ${fn.randomSecret} arguments only fill a group that does not exist yet.
+#   A changed spec (keys, restrictions, secretType) does not reach an existing
+#   group either: change the live group once by hand.
+# - secretType "environment": runtime only, never handed to a build. Neither
+#   build reads them (apps/api and apps/web Dockerfiles declare no such ARG; the
+#   web app's NEXT_PUBLIC_* values are read at start by server-wrapper.js and
+#   stay in learn-config, which keeps "environment-arguments" and "put").
+# learn-dbops holds only addon links (nothing generated, nothing to clobber), so
+# it stays "put", as otii's own addon-alias groups do; runtime only all the same.
+SECRET_GROUPS = ("learn-secrets", "learn-storage", "otii-learn-shared")
+RUNTIME_ONLY_GROUPS = (*SECRET_GROUPS, "learn-dbops")
+
+
 def group(ref, name, description, variables, tags=None, jobs=None, addon=None, priority=10, services=None):
     spec = {
         "name": name,
         "description": description,
         "type": "secret",
-        "secretType": "environment-arguments",
+        "secretType": "environment" if name in RUNTIME_ONLY_GROUPS else "environment-arguments",
         "priority": priority,
         "restrictions": {"restricted": True,
                          "nfObjects": [{"id": j, "type": "job"} for j in (jobs or [])]
@@ -52,7 +68,8 @@ def group(ref, name, description, variables, tags=None, jobs=None, addon=None, p
     }
     if addon:
         spec["addonDependencies"] = addon
-    return {"kind": "SecretGroup", "ref": ref, "spec": spec, "updateMode": "put"}
+    return {"kind": "SecretGroup", "ref": ref, "spec": spec,
+            "updateMode": "create" if name in SECRET_GROUPS else "put"}
 
 
 def build_service(ref, name, dockerfile, context):
@@ -194,7 +211,7 @@ spec_steps = [
         "NEXT_PUBLIC_LEARNHOUSE_DEFAULT_ORG": "${args.orgSlug}",
         "NEXT_TELEMETRY_DISABLED": "1",
     }, tags=[TAG]),
-    group("learnSecrets", "learn-secrets", "Otii Learn secrets, generated and stored by Northflank. Tagged otii-learn only.", {
+    group("learnSecrets", "learn-secrets", "Otii Learn secrets, generated once by Northflank, never rewritten by a run. Runtime only. Tagged otii-learn only.", {
         "LEARNHOUSE_AUTH_JWT_SECRET_KEY": "${args.jwtSecret}",
         "COLLAB_INTERNAL_KEY": "${args.collabKey}",
         "LEARNHOUSE_INITIAL_ADMIN_PASSWORD": "${args.adminPassword}",

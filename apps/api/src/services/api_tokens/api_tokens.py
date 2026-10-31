@@ -24,8 +24,8 @@ from src.security.org_auth import (
     get_user_org_role,
 )
 from src.security.security import (
+    security_check_token,
     security_hash_token,
-    security_token_needs_rehash,
     security_verify_token,
 )
 
@@ -448,10 +448,14 @@ async def validate_api_token_for_auth(
         APIToken.is_active == True,  # noqa: E712
     )
     candidates = (await db_session.execute(statement)).scalars().all()
-    api_token = next(
-        (t for t in candidates if security_verify_token(token, t.token_hash)),
-        None,
-    )
+    # otii: one check per candidate also says whether the hash is on an old
+    # key (legacy shape, or a previous key of the ring) and must be re-hashed.
+    api_token, stale_hash = None, False
+    for candidate in candidates:
+        valid, stale_hash = security_check_token(token, candidate.token_hash)
+        if valid:
+            api_token = candidate
+            break
 
     if not api_token:
         return None
@@ -470,7 +474,7 @@ async def validate_api_token_for_auth(
     # Update last_used_at and opportunistically upgrade legacy hashes.
     try:
         api_token.last_used_at = str(datetime.now())
-        if security_token_needs_rehash(api_token.token_hash):
+        if stale_hash:
             api_token.token_hash = security_hash_token(token)
         db_session.add(api_token)
         await db_session.commit()

@@ -44,6 +44,9 @@ STORAGE_SOURCES = {"s3Bucket": "S3_BUCKET", "s3Endpoint": "S3_ENDPOINT", "s3Regi
 # "kept unless removed" notwithstanding). So each release reads the six
 # secrets back from the live API service and passes them in as plain run
 # arguments; only a secret that does not exist yet (first release) is drawn.
+# Since 31 Oct 2026 the groups holding them are "create" (GROUP_RULES), so a run
+# no longer writes an existing group at all; passing them back stays as a
+# second guard, and the read-back after the run checks both.
 SECRET_SOURCES = {
     "dbPassword": "OTII_LEARN_DB_PASSWORD",
     "jwtSecret": "LEARNHOUSE_AUTH_JWT_SECRET_KEY",
@@ -53,6 +56,19 @@ SECRET_SOURCES = {
     "webhookSecret": "OTII_LEARN_WEBHOOK_SECRET",
 }
 SECRET_ARGS = tuple(SECRET_SOURCES)
+# Settings groups and how a run may treat them (31 Oct 2026, after the Northflank
+# breach). Groups holding secrets are created once and never rewritten by a run
+# ("create"), and are runtime only ("environment": never handed to a build).
+# learn-dbops holds addon links only, so a run may rewrite it, but runtime only.
+# learn-config is the one group builds may read; it must hold no secret.
+GROUP_RULES = {
+    "learn-secrets": ("create", "environment"),
+    "learn-storage": ("create", "environment"),
+    "otii-learn-shared": ("create", "environment"),
+    "learn-dbops": ("put", "environment"),
+    "learn-config": ("put", "environment-arguments"),
+}
+SECRET_NAME = re.compile(r"(PASSWORD|SECRET|TOKEN|PRIVATE|_KEY$)")
 DESCRIPTION_OK = re.compile(r"^[a-zA-Z0-9.,?\s\\/'\"()\[\];`%^&*\-_:!]+$")
 
 
@@ -114,6 +130,16 @@ def guard(template: dict, arguments: dict | None = None) -> None:
             problems.append(f"{node['kind']} {spec.get('name')} carries a label that is not Otii Learn's: {foreign}")
         if "otii-learn-storage" in (spec.get("tags") or []) and spec.get("name") not in STORAGE_WORKLOADS:
             problems.append(f"{spec.get('name')} carries the storage label; only {STORAGE_WORKLOADS} may")
+        if node["kind"] == "SecretGroup":
+            rule = GROUP_RULES.get(spec.get("name"))
+            if rule is None:
+                problems.append(f"settings group {spec.get('name')} has no rule in GROUP_RULES; say whether it holds secrets")
+            elif (node.get("updateMode"), spec.get("secretType")) != rule:
+                problems.append(f"settings group {spec.get('name')} must be updateMode {rule[0]}, secretType {rule[1]}")
+            if spec.get("secretType") != "environment":
+                leaked = [k for k in (spec.get("secrets") or {}).get("variables", {}) if SECRET_NAME.search(k)]
+                if leaked:
+                    problems.append(f"settings group {spec.get('name')} reaches builds and holds secrets: {leaked}")
         if node["kind"] == "SecretGroup" and spec.get("name") == "otii-learn-shared":
             allowed = [{"id": "${args.otiiKeycloakJob}", "type": "job"}, {"id": "${args.otiiBackendService}", "type": "service"}]
             if (spec.get("restrictions") or {}).get("nfObjects") != allowed:

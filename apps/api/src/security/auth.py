@@ -11,10 +11,15 @@ from pydantic import BaseModel
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
-from jwt.exceptions import PyJWTError
+from jwt.exceptions import InvalidSignatureError, PyJWTError
 from datetime import datetime, timedelta, timezone
 from src.services.users.users import security_verify_password
-from src.security.security import ALGORITHM, SECRET_KEY, security_hash_password
+from src.security.security import (
+    ALGORITHM,
+    PREVIOUS_SECRET_KEYS,
+    SECRET_KEY,
+    security_hash_password,
+)
 from src.security.session_context import (
     AMR_CLAIM,
     AUTH_METHOD_API_TOKEN,
@@ -74,6 +79,9 @@ def resolve_acting_user_id(
 
 #### JWT Auth Configuration ####################################################
 JWT_SECRET_KEY = SECRET_KEY
+# otii: tokens signed with a previous key (LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS)
+# still verify, so a key rotation signs nobody out. New tokens use SECRET_KEY.
+JWT_PREVIOUS_SECRET_KEYS = PREVIOUS_SECRET_KEYS
 # Dev mode only affects whether expiration is VERIFIED, not whether it's SET
 # This ensures tokens created in dev mode will expire if the app switches to production
 JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=8)
@@ -102,6 +110,29 @@ def extract_jwt_from_request(request: Request) -> Optional[str]:
     return None
 
 
+def _decode_with_key_ring(token: str, options: dict) -> dict:
+    """otii: ``jwt.decode`` under the current key, then each previous key.
+
+    Only a wrong signature moves on to the next key. Any other failure
+    (expired, missing claim, malformed) is final, so the previous keys never
+    widen what a correctly signed token may do. Raises PyJWTError when no key
+    verifies the token.
+    """
+    keys = (JWT_SECRET_KEY, *JWT_PREVIOUS_SECRET_KEYS)
+    for index, key in enumerate(keys):
+        try:
+            return jwt.decode(
+                token,
+                key,
+                algorithms=[ALGORITHM],  # Explicit algorithm prevents confusion attacks
+                options=options,
+            )
+        except InvalidSignatureError:
+            if index == len(keys) - 1:
+                raise
+    raise InvalidSignatureError("no key")  # pragma: no cover - keys is never empty
+
+
 def decode_jwt(token: str) -> Optional[dict]:
     """
     Decode and validate a JWT token.
@@ -119,12 +150,7 @@ def decode_jwt(token: str) -> Optional[dict]:
         # from being valid forever if dev mode is accidentally left on.
         decode_options = {"require": ["exp", "sub"]}
 
-        payload = jwt.decode(
-            token,
-            JWT_SECRET_KEY,
-            algorithms=[ALGORITHM],  # Explicit algorithm prevents confusion attacks
-            options=decode_options
-        )
+        payload = _decode_with_key_ring(token, decode_options)
         return payload
     except PyJWTError:
         return None
@@ -336,12 +362,7 @@ def decode_refresh_token(token: str) -> Optional[dict]:
         # SECURITY: Always verify expiration for refresh tokens
         decode_options = {"require": ["exp", "sub"]}
 
-        payload = jwt.decode(
-            token,
-            JWT_SECRET_KEY,
-            algorithms=[ALGORITHM],
-            options=decode_options
-        )
+        payload = _decode_with_key_ring(token, decode_options)
         if payload.get("type") != "refresh":
             return None
         return payload

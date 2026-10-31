@@ -5,12 +5,17 @@ import secrets
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from config.config import get_learnhouse_config
+from src.otii.key_ring import previous_keys
 
 
 ### 🔒 JWT ##############################################################
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 SECRET_KEY = get_learnhouse_config().security_config.auth_jwt_secret_key
+# otii: the key ring. SECRET_KEY signs, encrypts and hashes; the previous keys
+# (LEARNHOUSE_AUTH_JWT_SECRET_KEY_PREVIOUS) are only ever used to read. See
+# src/otii/key_ring.py.
+PREVIOUS_SECRET_KEYS = previous_keys(SECRET_KEY)
 ALGORITHM = "HS256"
 
 ### 🔒 JWT ##############################################################
@@ -140,13 +145,21 @@ def security_verify_and_update_password(plain_password: str, hashed_password: st
 ### 🔒 API token hashing ##############################################################
 
 
+def _pepper_b64(key) -> str:
+    raw = key.encode() if isinstance(key, str) else bytes(key)
+    return base64.b64encode(raw).decode("ascii")
+
+
 _TOKEN_PEPPER = SECRET_KEY.encode() if isinstance(SECRET_KEY, str) else bytes(SECRET_KEY)
-_TOKEN_PEPPER_B64 = base64.b64encode(_TOKEN_PEPPER).decode("ascii")
+_TOKEN_PEPPER_B64 = _pepper_b64(SECRET_KEY)
+# otii: hashes made under a previous key still match until the token is next
+# used, when it is re-hashed under the current key (see security_check_token).
+_PREVIOUS_TOKEN_PEPPERS_B64 = tuple(_pepper_b64(k) for k in PREVIOUS_SECRET_KEYS)
 _token_hasher = Argon2Hasher()
 
 
-def _token_input(token: str) -> str:
-    return f"{_TOKEN_PEPPER_B64}:{token}"
+def _token_input(token: str, pepper_b64: str | None = None) -> str:
+    return f"{pepper_b64 or _TOKEN_PEPPER_B64}:{token}"
 
 
 def _is_legacy_sha256_hash(stored_hash: str) -> bool:
@@ -164,17 +177,37 @@ def security_hash_token(token: str) -> str:
     return _token_hasher.hash(_token_input(token))
 
 
-def security_verify_token(provided_token: str, stored_hash: str) -> bool:
+def _argon2_token_matches(provided_token: str, stored_hash: str, pepper_b64: str) -> bool:
+    try:
+        return _token_hasher.verify(_token_input(provided_token, pepper_b64), stored_hash)
+    except Exception:
+        return False
+
+
+def security_check_token(provided_token: str, stored_hash: str) -> Tuple[bool, bool]:
+    """Return ``(valid, needs_rehash)`` for a presented token.
+
+    ``needs_rehash`` is True when the stored hash is the legacy pepperless
+    SHA-256 shape, or (otii) when it only matched under a previous key of the
+    ring: the caller then stores ``security_hash_token(token)``.
+    """
     # Backwards compatibility: tokens created before the argon2id switch were
     # stored as pepperless SHA-256 hex. Detect that shape and verify directly
     # so existing customer tokens keep authenticating.
     if _is_legacy_sha256_hash(stored_hash):
         provided_hash = hashlib.sha256(provided_token.encode()).hexdigest()
-        return secrets.compare_digest(provided_hash, stored_hash)
-    try:
-        return _token_hasher.verify(_token_input(provided_token), stored_hash)
-    except Exception:
-        return False
+        valid = secrets.compare_digest(provided_hash, stored_hash)
+        return valid, valid
+    if _argon2_token_matches(provided_token, stored_hash, _TOKEN_PEPPER_B64):
+        return True, False
+    for pepper_b64 in _PREVIOUS_TOKEN_PEPPERS_B64:
+        if _argon2_token_matches(provided_token, stored_hash, pepper_b64):
+            return True, True
+    return False, False
+
+
+def security_verify_token(provided_token: str, stored_hash: str) -> bool:
+    return security_check_token(provided_token, stored_hash)[0]
 
 
 def security_token_needs_rehash(stored_hash: str) -> bool:
