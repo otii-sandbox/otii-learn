@@ -288,9 +288,9 @@
                 "ref": "learnSecrets",
                 "spec": {
                   "name": "learn-secrets",
-                  "description": "Otii Learn secrets, generated and stored by Northflank. Tagged otii-learn only.",
+                  "description": "Otii Learn secrets, generated once by Northflank, never rewritten by a run. Runtime only. Tagged otii-learn only.",
                   "type": "secret",
-                  "secretType": "environment-arguments",
+                  "secretType": "environment",
                   "priority": 10,
                   "restrictions": {
                     "restricted": true,
@@ -323,7 +323,7 @@
                     }
                   ]
                 },
-                "updateMode": "put"
+                "updateMode": "create"
               },
               {
                 "kind": "SecretGroup",
@@ -332,7 +332,7 @@
                   "name": "learn-storage",
                   "description": "otii's bucket settings, for the two Otii Learn workloads that store files. Nothing else of otii's.",
                   "type": "secret",
-                  "secretType": "environment-arguments",
+                  "secretType": "environment",
                   "priority": 10,
                   "restrictions": {
                     "restricted": true,
@@ -353,7 +353,7 @@
                     "files": {}
                   }
                 },
-                "updateMode": "put"
+                "updateMode": "create"
               },
               {
                 "kind": "SecretGroup",
@@ -362,7 +362,7 @@
                   "name": "otii-learn-shared",
                   "description": "Values Otii Learn and two otii workloads read: otii's backend (webhook) and kc-bootstrap (sign-in client).",
                   "type": "secret",
-                  "secretType": "environment-arguments",
+                  "secretType": "environment",
                   "priority": 10,
                   "restrictions": {
                     "restricted": true,
@@ -392,7 +392,7 @@
                     "files": {}
                   }
                 },
-                "updateMode": "put"
+                "updateMode": "create"
               },
               {
                 "kind": "BuildService",
@@ -536,7 +536,7 @@
                   "name": "learn-dbops",
                   "description": "Postgres admin login for learn-db-provision only. Its host is never used.",
                   "type": "secret",
-                  "secretType": "environment-arguments",
+                  "secretType": "environment",
                   "priority": 20,
                   "restrictions": {
                     "restricted": true,
